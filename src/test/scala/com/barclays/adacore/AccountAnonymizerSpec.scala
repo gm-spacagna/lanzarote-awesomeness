@@ -132,7 +132,7 @@ class AccountAnonymizerSpec extends Specification with TestUtils with TestConfig
         }
       }
 
-      "correctly merge numerical buckets" in {
+      /*"correctly merge numerical buckets" in {
         "with 1 bucket and k = 3" in {
           val bucket1 = NumericalBucket(10, 25, 10000, 40000)
 
@@ -199,7 +199,7 @@ class AccountAnonymizerSpec extends Specification with TestUtils with TestConfig
               GeneralizedNumericalBucketGroup(LongRange(6, 6), LongRange(20, 20), LongRange(10, 10), LongRange(30, 30), 3)
             )
         }
-      }
+      }*/
     }
   }
 }
