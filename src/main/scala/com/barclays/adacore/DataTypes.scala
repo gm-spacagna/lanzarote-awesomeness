@@ -34,7 +34,7 @@ case object AnonymizedRecord {
       businessPostcode.getOrElse("")).mkString(sep)
   }
 
-  def fromSv(sep: String = "\t", listSep: String = ",", categoricalBucketSep: String = "|")(line: String): AnonymizedRecord =
+  def fromSv(sep: String = "\t", listSep: String = ",", categoricalBucketSep: String = """\|""")(line: String): AnonymizedRecord =
     line.split(sep, -1).toList match {
       case List(maskedCustomerId, generalizedCategoricalGroup,
       groupSize, amount, dayOfWeek, merchantCategoryCode, businessName, businessTown, businessPostcode) =>
