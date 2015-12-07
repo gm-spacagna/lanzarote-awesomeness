@@ -25,7 +25,7 @@ case object AnonymizedRecord {
     def categoryBucketToSV(bucket: CategoricalBucket): String = bucket match {
       case CategoricalBucket(onlineActive, acornTypeId, gender, maritalStatusId, occupationId) =>
         List(onlineActive.toString, acornTypeId, gender, maritalStatusId.getOrElse(""), occupationId.getOrElse(""))
-        .mkString(categoricalBucketSep)
+          .mkString(categoricalBucketSep)
     }
     import record._
 
@@ -58,4 +58,14 @@ case object AnonymizedRecord {
 
 case class AnonymizedRecord(maskedCustomerId: Long, generalizedCategoricalGroup: GeneralizedCategoricalBucketGroup,
                             amount: Double, dayOfWeek: Int, merchantCategoryCode: String,
-                            businessName: String, businessTown: String, businessPostcode: Option[String])
+                            businessName: String, businessTown: String, businessPostcode: Option[String]) {
+  def onlineActive: Set[Boolean] = generalizedCategoricalGroup.group.map(_.onlineActive)
+
+  def acornTypeId: Set[Int] = generalizedCategoricalGroup.group.map(_.acornTypeId)
+
+  def gender: Set[String] = generalizedCategoricalGroup.group.map(_.gender)
+
+  def maritalStatusId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.maritalStatusId)
+
+  def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)
+}
