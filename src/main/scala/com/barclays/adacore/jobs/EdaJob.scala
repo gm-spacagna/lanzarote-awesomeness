@@ -9,6 +9,8 @@ import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
 
+import scalaz.Scalaz._
+
 case object EdaJob {
   def main(args: Array[String]) {
     val conf = new ScallopConf(args) {
@@ -18,19 +20,32 @@ case object EdaJob {
     }
 
     val sc = Utils.staticSc
-    val path = conf.rawPath()
-    val transactions = sc.textFile(path = path)
+    val inPath = conf.rawPath()
+    val transactions = sc.textFile(path = inPath)
                        .map(AnonymizedRecord.fromSv())
                        .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     val results: RDD[PrettyPercentileStats] = sc.makeRDD(List(
-      Stats.uniqueCustomers(transactions, 101),
-      Stats.uniqueMerchants(transactions, 101),
+      //      Stats.uniqueCustomers(transactions, 101),
+      //      Stats.uniqueMerchants(transactions, 101),
+      //
+      //      Stats.txCountPerBusiness(transactions, 1001),
+      //      Stats.txCountPerCustomer(transactions, 1001),
+      //      Stats.txCountPerMarital(transactions, 1001),
+      //      Stats.txSumPerMarital(transactions, 1001),
+      //
+      Stats.txSumPerDayOfWeek(transactions, 1001),
+      Stats.txAmountPerCustomer(transactions, 1001),
+      Stats.customerCountPerTxAmount(transactions, 1001),
+      Stats.averageTxAmountPerBusiness(transactions, 1001),
+      Stats.averageTxAmountPerCustomer(transactions, 1001),
+      Stats.countTxPerDistrict(transactions, 1001),
+      Stats.sumTxAmountPerDistrict(transactions, 1001),
+      Stats.averageTxAmountPerDistrict(transactions, 1001),
+      Stats.uniqueMerchantCodestPerDistrict(transactions, 1001),
+      Stats.averageTxAmountPerMerchantCode(transactions, 1001),
+      Stats.averageTxAmountPerMerchantCodeAndGender(transactions, 1001)
 
-      Stats.txCountPerBusiness(transactions, 1001),
-      Stats.txCountPerCustomer(transactions, 1001),
-      Stats.txCountPerMarital(transactions, 1001),
-      Stats.txSumPerMarital(transactions, 1001)
     ).flatten,
 
       numSlices = 1)
@@ -39,7 +54,7 @@ case object EdaJob {
     results.saveAsObjectFile(out)
     conf.outputHuman.foreach(results.map(_.toHumanReadable).saveAsTextFile)
 
-    savePlotLists(results, "/tmp/eda/human/")
+    savePlotLists(results, conf.outputHuman())
   }
 
   def savePlotLists(results: RDD[PrettyPercentileStats], outFolder: String) = {
@@ -60,6 +75,15 @@ case object EdaJob {
 case object Stats {
   def businessID(tx: AnonymizedRecord) = tx.businessName + "_" + tx.businessTown + "_" + tx.businessPostcode
   def maritalToID(marital: Set[Option[Int]]) = marital.flatten.toList.sorted.mkString(",")
+  def toDistrictCode(postcode: Option[String]): String = postcode match {
+    case Some(a) if a.nonEmpty => a.substring(0, a.length - 3)
+    case _ => "$NONE_POSTCODE$"
+  }
+
+  def genderVal(gender: Set[String]): String = gender match {
+    case a if a.nonEmpty => a.head
+    case _ => "$NONE_GENDER$"
+  }
 
   def uniqueCustomers(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
     Some("Unique Customers")
@@ -143,6 +167,172 @@ case object Stats {
         toVal = tx => tx.amount,
         reduceFunc = _ + _,
         toStats = t => t.toLong,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def txSumPerDayOfWeek(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("DayOfWeek - Sum(Tx)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, Int, Double](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => tx.dayOfWeek,
+        toVal = tx => tx.amount,
+        reduceFunc = _ + _,
+        toStats = t => t.toLong,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def txAmountPerCustomer(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("Customer - Sum(Tx)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, Long, Double](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => tx.maskedCustomerId,
+        toVal = tx => tx.amount,
+        reduceFunc = _ + _,
+        toStats = t => t.round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def customerCountPerTxAmount(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("TxAmount - Count of Customers")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, Long, Set[Long]](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => tx.amount.round,
+        toVal = tx => Set(tx.maskedCustomerId),
+        reduceFunc = _ ++ _,
+        toStats = t => t.size,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def averageTxAmountPerBusiness(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("Business - Avg(TxAmount)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, (Double, Int)](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => businessID(tx),
+        toVal = tx => (tx.amount, 1),
+        reduceFunc = _ |+| _,
+        toStats = stats => (stats._1 / stats._2).round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def averageTxAmountPerCustomer(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("Customer - Avg(TxAmount)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, Long, (Double, Int)](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => tx.maskedCustomerId,
+        toVal = tx => (tx.amount, 1),
+        reduceFunc = _ |+| _,
+        toStats = stats => (stats._1 / stats._2).round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def countTxPerDistrict(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("District - Count(Tx)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, Long](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => toDistrictCode(tx.businessPostcode),
+        toVal = tx => 1l,
+        reduceFunc = _ |+| _,
+        toStats = identity,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def sumTxAmountPerDistrict(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("District - Sum(Tx)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, Double](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => toDistrictCode(tx.businessPostcode),
+        toVal = tx => tx.amount,
+        reduceFunc = _ |+| _,
+        toStats = s => s.round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def averageTxAmountPerDistrict(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("District - Avg(TxAmount)")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, (Double, Int)](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => toDistrictCode(tx.businessPostcode),
+        toVal = tx => (tx.amount, 1),
+        reduceFunc = _ |+| _,
+        toStats = stats => (stats._1 / stats._2).round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def uniqueMerchantCodestPerDistrict(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("District - Unique Merchant Codes")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, Set[String]](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => toDistrictCode(tx.businessPostcode),
+        toVal = tx => Set(tx.merchantCategoryCode),
+        reduceFunc = _ |+| _,
+        toStats = stats => stats.size,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  //  Gender merchant code - average transaciton count
+  def averageTxAmountPerMerchantCode(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("Merchant Code - Average Transaction Value")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, String, (Double, Int)](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => tx.merchantCategoryCode,
+        toVal = tx => (tx.amount, 1),
+        reduceFunc = _ |+| _,
+        toStats = stats => (stats._1 / stats._2).round,
+        numPercentiles = nPercentiles
+      )
+    ))
+
+  def averageTxAmountPerMerchantCodeAndGender(tx: RDD[AnonymizedRecord], nPercentiles: Int = 1001) =
+    Some("Gender x Merchant Code - Average Transaction Value")
+    .map(n => PrettyPercentileStats(
+      name = n,
+      levels = SequenceStats.percentile[AnonymizedRecord, (String, String), (Double, Int)](
+        data = AppLogger.logStage(tx, n),
+        toDrillDownKeyOption = None,
+        toDimKey = tx => (tx.merchantCategoryCode, genderVal(tx.gender)),
+        toVal = tx => (tx.amount, 1),
+        reduceFunc = _ |+| _,
+        toStats = stats => (stats._1 / stats._2).round,
         numPercentiles = nPercentiles
       )
     ))

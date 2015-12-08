@@ -18,7 +18,8 @@ libraryDependencies ++= Seq(
   "org.joda" % "joda-convert" % "1.2" withSources() withJavadoc(),
   "org.rogach" %% "scallop" % "0.9.5" withSources() withJavadoc(),
   "org.specs2" %% "specs2-core" % "2.4.9-scalaz-7.0.6" % "test" withSources() withJavadoc(),
-  "org.specs2" %% "specs2-scalacheck" % "2.4.9-scalaz-7.0.6" % "test" withSources() withJavadoc()
+  "org.specs2" %% "specs2-scalacheck" % "2.4.9-scalaz-7.0.6" % "test" withSources() withJavadoc(),
+  "com.github.vicpara" %% "exploratory-data-analysis_2.10" % "0.1.0-SNAPSHOT" withSources() withJavadoc()
 )
 
 resolvers ++= Seq(
@@ -26,7 +27,7 @@ resolvers ++= Seq(
   "Maven Central" at "https://repo1.maven.org/maven2/"
 )
 
-mergeStrategy in assembly <<= (mergeStrategy in assembly)((old) => {
+mergeStrategy in assembly <<= (mergeStrategy in assembly) ((old) => {
   case x if Assembly.isConfigFile(x) =>
     MergeStrategy.concat
   case PathList(ps@_*) if Assembly.isReadme(ps.last) || Assembly.isLicenseFile(ps.last) =>
