@@ -40,7 +40,7 @@ case class RecommenderEvaluation(@transient sc: SparkContext) {
   }
 }
 
-trait Recommender {
+trait Recommender extends Serializable {
   // returns customerId -> List[(merchantName, merchantTown)]
   def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])]
 }
