@@ -10,7 +10,7 @@ case object Password {
   val PasswordTag = "<PASSWORD>"
 }
 
-class Password(pswd: String) {
+class Password(private val pswd: String) {
   def replaceInString(str: String) = str.replaceAll(Password.PasswordTag, pswd)
 }
 
@@ -38,19 +38,42 @@ case object Tables {
 case class Tables(username: String, password: Password, @transient sqlctx: SQLContext) {
   val load = Tables.load(sqlctx = sqlctx, username = username, password = password) _
 
-  def rawAccountRDD(): RDD[(String, RawAccount)] =
+  def rawCustomers(): RDD[(String, RawCustomer)] =
     load("D_LB_PRODUCT", "MVP_CTM", "CUSTOMER_IDENTIFIER", 1510072, 9996928884l, 12)
     .select("SUMMARY_DATE", "CUSTOMER_IDENTIFIER", "CA_AVG_CLEARED_BALANCE_AMT", "AGE", "ONLINE_ACTIVE", "CUSTOMER_INCOME",
-        "GROSS_INCOME_AMOUNT", "POSTAL_SECTOR", "ACORN_TYPE_ID", "SEX_INDICATOR", "MARITAL_STATUS_CODE",
-        "OCCUPATION_CODE")
+      "GROSS_INCOME_AMOUNT", "POSTAL_SECTOR", "ACORN_TYPE_ID", "SEX_INDICATOR", "MARITAL_STATUS_CODE",
+      "OCCUPATION_CODE")
     .map(_.toSeq.toList match {
       case List(summaryDate: java.sql.Date, customerId: java.math.BigDecimal, balance, age, online: Int,
       income, grossIncome: Int, postalSector, acornTypeId: Int, gender: String,
-      maritalStatusId: String, occupationId: String) => summaryDate.toString -> RawAccount(customerId.longValue(),
+      maritalStatusId: String, occupationId: String) => summaryDate.toString -> RawCustomer(customerId.longValue(),
         Option(balance.asInstanceOf[java.math.BigDecimal]).map(_.doubleValue), Option(age.asInstanceOf[Int]),
         online == 1, Option(income.asInstanceOf[java.math.BigDecimal]).map(_.doubleValue), grossIncome,
         Option(postalSector.asInstanceOf[String]),
         acornTypeId, gender, maritalStatusId.trim.nonEmptyOption(_.toInt),
         occupationId.forall((char: Char) => char.isDigit).option(occupationId.toInt))
+    })
+
+  def rawTransactionsWithoutTime(table: String, min: Long, max: Long) =
+    load("D_LB_PRODUCT", table, "CUSTOMER_IDENTIFIER", min, max, 20).map(_.toSeq.toList match {
+      case List(
+      customerId: java.math.BigDecimal,
+      date: java.sql.Date,
+      merchantNumber,
+      merchantName: String,
+      merchantTown: String,
+      amount: java.math.BigDecimal,
+      merchantCountry: String,
+      merchantCategoryCode: String
+      ) =>
+        RawTransactionWithoutTime(
+          merchantName,
+          merchantTown,
+          merchantCountry,
+          merchantCategoryCode,
+          amount.doubleValue(),
+          date.toString,
+          customerId.longValue()
+        )
     })
 }
