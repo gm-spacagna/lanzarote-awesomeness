@@ -21,6 +21,8 @@ case object LanzaroteCoach extends RecommenderTrainer {
 case class LanzaroteBest(knowledge: Matrix, idx: Map[(String, String), Int], userHistory: RDD[(Long, List[(String, String)])])
   extends Recommender {
 
+  val ridx: Map[Int, (String, String)] = idx.map(e => e._2 -> e._1)
+
   def getBestForId(rowId: Int): Int = {
     (for {
       j <- (0 to knowledge.numCols - 1)
@@ -30,6 +32,5 @@ case class LanzaroteBest(knowledge: Matrix, idx: Map[(String, String), Int], use
   }
 
   override def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
-      customers.map(userHistory.lookup(_)).map(l => l.head.map(k => getBestForId(idx(k)))))
-
+    customers.map(c => c -> userHistory.lookup(c)).mapValues(l => l.head.map(k => ridx(getBestForId(idx(k)))))
 }
