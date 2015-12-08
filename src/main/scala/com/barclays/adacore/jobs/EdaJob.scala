@@ -23,17 +23,18 @@ case object EdaJob {
     val inPath = conf.rawPath()
     val transactions = sc.textFile(path = inPath)
                        .map(AnonymizedRecord.fromSv())
+                       .coalesce(8)
                        .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     val results: RDD[PrettyPercentileStats] = sc.makeRDD(List(
-      //      Stats.uniqueCustomers(transactions, 101),
-      //      Stats.uniqueMerchants(transactions, 101),
-      //
-      //      Stats.txCountPerBusiness(transactions, 1001),
-      //      Stats.txCountPerCustomer(transactions, 1001),
-      //      Stats.txCountPerMarital(transactions, 1001),
-      //      Stats.txSumPerMarital(transactions, 1001),
-      //
+      Stats.uniqueCustomers(transactions, 101),
+      Stats.uniqueMerchants(transactions, 101),
+
+      Stats.txCountPerBusiness(transactions, 1001),
+      Stats.txCountPerCustomer(transactions, 1001),
+      Stats.txCountPerMarital(transactions, 1001),
+      Stats.txSumPerMarital(transactions, 1001),
+
       Stats.txSumPerDayOfWeek(transactions, 1001),
       Stats.txAmountPerCustomer(transactions, 1001),
       Stats.customerCountPerTxAmount(transactions, 1001),
@@ -47,7 +48,6 @@ case object EdaJob {
       Stats.averageTxAmountPerMerchantCodeAndGender(transactions, 1001)
 
     ).flatten,
-
       numSlices = 1)
 
     val out = conf.output()
