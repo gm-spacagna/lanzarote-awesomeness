@@ -7,10 +7,6 @@ import org.apache.spark.rdd.RDD
 import scala.util.Random
 
 case class RecommenderEvaluation(@transient sc: SparkContext) {
-  // Map[customerId -> (Set[trainingBusinesses], Set[testBusinesses])] such that the two sets intersection is empty
-  //  def evaluationBusinessMaps(trainingData: RDD[AnonymizedRecord],
-  //                             testData: RDD[AnonymizedRecord]): RDD[(Long, (Set[(String, String)], Set[(String, String)]))] = ???
-
   def splitData(data: RDD[AnonymizedRecord],
                 fraction: Double = 0.8): (RDD[AnonymizedRecord], RDD[AnonymizedRecord]) = {
     val customerIdToTestBusinesses = sc.broadcast(

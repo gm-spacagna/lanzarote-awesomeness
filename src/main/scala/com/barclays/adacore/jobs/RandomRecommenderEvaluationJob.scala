@@ -5,7 +5,7 @@ import com.barclays.adacore.utils.Logger
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
 
-case object RandomRecommenderJob {
+case object RandomRecommenderEvaluationJob {
   def main(args: Array[String]) {
     val conf = new ScallopConf(args) {
       val anonymizedDataPath = opt[String](required = true, descr = "The path of the anonymized data")

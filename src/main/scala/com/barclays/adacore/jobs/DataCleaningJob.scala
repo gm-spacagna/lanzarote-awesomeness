@@ -1,13 +1,8 @@
 package com.barclays.adacore.jobs
 
 import com.barclays.adacore._
-import com.barclays.adacore.anonymizers.{AccountAnonymizer, GeneralizedCategoricalBucketGroup}
 import com.barclays.adacore.utils.Logger
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
-import org.joda.time.DateTime
 import org.rogach.scallop.ScallopConf
 
 case object DataCleaningJob {
@@ -38,7 +33,6 @@ case object DataCleaningJob {
         "NORTHWICH", "PLYMOUTH", "RADLETT", "RECEPTION", "REDFIELD", "RESTAURANT", "SHERBORNE", "DINGLES", "GATESHEAD",
         "GLASTONBURY", "GLENROTHES", "HACKBRIDGE", "KIDDERMINSTER"
       )
-
 
     val filteredRecords = anonymizedRecords.filter(t => badTowns.filter(town => t.businessTown.contains(town)).size == 0)
 
