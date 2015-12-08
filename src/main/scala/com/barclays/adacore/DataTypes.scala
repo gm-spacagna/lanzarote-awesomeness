@@ -67,5 +67,7 @@ case class AnonymizedRecord(maskedCustomerId: Long, generalizedCategoricalGroup:
 
   def maritalStatusId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.maritalStatusId)
 
+  def businessKey: (String, String) = (businessName, businessTown)
+
   def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)
 }
