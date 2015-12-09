@@ -23,7 +23,7 @@ case class LanzaroteBest(knowledge: Matrix, idx: Map[(String, String), Int], use
 
   def getBestForId(rowId: Int): Int = {
     (for {
-      j <- (0 to knowledge.numCols - 1)
+      j <- (0 to knowledge.numCols - 1) if j != rowId
       v = knowledge.apply(rowId, j)
     } yield (v, j))
     .foldLeft((-1.0, -1))((acc, vi) => if (acc._1 < vi._1) vi else acc)._2
