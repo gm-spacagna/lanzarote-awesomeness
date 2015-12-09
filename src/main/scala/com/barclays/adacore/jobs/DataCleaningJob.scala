@@ -13,8 +13,8 @@ case object DataCleaningJob {
         descr = "The tables of the raw transactions data delimited by comma")
       val tmpFolder = opt[String](descr = "Overrides the directory used in spark.local.dir")
       val outputPath = opt[String](required = true, descr = "Output path of anonymized data")
-      val minTransPerBusiness = opt[Int](required = true, descr = "Minimum number of transactions per Businesses")
-      val minTransPerUser = opt[Int](required = true, descr = "Minimum number of transactions per User")
+      val minTransPerBusiness = opt[Int](required = false, default = Option(10), descr = "Minimum number of transactions per Businesses")
+      val minTransPerUser = opt[Int](required = false, default = Option(5), descr = "Minimum number of transactions per User")
     }
 
     val sparkConf =
@@ -39,15 +39,18 @@ case object DataCleaningJob {
 
     val filteredRecords = anonymizedRecords.filter(t => !badTowns.exists(town => t.businessTown.contains(town)))
 
+    val minTransPerUser = conf.minTransPerUser()
+    val minTransPerBusiness = conf.minTransPerBusiness()
+
     val activeUsers: Set[Long] =
       filteredRecords.map(_.maskedCustomerId -> 1).reduceByKey(_ + _)
-      .filter(_._2 > conf.minTransPerUser()).collect().map(_._1).toSet
+      .filter(_._2 > minTransPerUser).collect().map(_._1).toSet
     val activeUsersBV = sc.broadcast(activeUsers)
 
     val activeBusinesses: Set[(String, String)] =
       filteredRecords.map(_.businessKey -> 1)
       .reduceByKey(_ + _)
-      .filter(_._2 > conf.minTransPerBusiness())
+      .filter(_._2 > minTransPerBusiness)
       .collect().map(_._1).toSet
     val activeBusinessesBV = sc.broadcast(activeBusinesses)
 
