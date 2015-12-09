@@ -10,9 +10,9 @@ import scalaz.Scalaz._
 
 class LanzaroteCoach() extends RecommenderTrainer {
   override def train(data: RDD[AnonymizedRecord]): Recommender = {
-    val (features, history) = Covariance.features(data)
-    val (cov, idx) = features |> Covariance.toCovariance
-    LanzaroteBest(cov, idx, history)
+    val (features, history, businessMap) = Covariance.features(data)
+    val cov = features |> Covariance.toCovariance
+    LanzaroteBest(cov, businessMap, history)
   }
 }
 
