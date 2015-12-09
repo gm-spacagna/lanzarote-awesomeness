@@ -13,6 +13,7 @@ case object DataCleaningJob {
         descr = "The tables of the raw transactions data delimited by comma")
       val tmpFolder = opt[String](descr = "Overrides the directory used in spark.local.dir")
       val outputPath = opt[String](required = true, descr = "Output path of anonymized data")
+      val outputPathCollapsed = opt[String](required = false,default = None, descr = "Output path of userToBusiness data")
       val minTransPerBusiness = opt[Int](required = false, default = Option(10), descr = "Minimum number of transactions per Businesses")
       val minTransPerUser = opt[Int](required = false, default = Option(5), descr = "Minimum number of transactions per User")
     }
@@ -62,5 +63,30 @@ case object DataCleaningJob {
       " records after cleaning: " + filteredUserAmountBusiness.count())
 
     filteredUserAmountBusiness.map(AnonymizedRecord.toSv()).saveAsTextFile(conf.outputPath())
+
+    if (conf.outputPathCollapsed.get.isDefined) {
+      val customerToBusinessStatistics = filteredUserAmountBusiness.groupBy(line => (line.maskedCustomerId, line.businessKey)).map(grouped => grouped._2).
+                                         map(records => {
+                                           val spends = records.groupBy(row => row.maskedCustomerId).map(groups => groups._2.map(trans => trans.amount))
+                                           val sumSpends = spends.map(x => x.sum).head
+                                           val visits = spends.map(x => x.size).head
+                                           val firstElement = records.head
+
+                                           CustomerToBusinessStatistics(firstElement.maskedCustomerId,
+                                             firstElement.generalizedCategoricalGroup,
+                                             sumSpends,
+                                             visits,
+                                             firstElement.merchantCategoryCode,
+                                             firstElement.businessName,
+                                             firstElement.businessTown,
+                                             firstElement.businessPostcode)
+
+                                         })
+
+      customerToBusinessStatistics.map(CustomerToBusinessStatistics.toSv()).saveAsTextFile(conf.outputPathCollapsed())
+
+      Logger().info("records before collapsing: " + filteredUserAmountBusiness.count() +
+        " records after collapsing: " + customerToBusinessStatistics.count())
+    }
   }
 }

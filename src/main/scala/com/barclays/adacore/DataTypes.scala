@@ -71,3 +71,61 @@ case class AnonymizedRecord(maskedCustomerId: Long, generalizedCategoricalGroup:
 
   def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)
 }
+
+
+
+
+case object CustomerToBusinessStatistics {
+  def toSv(sep: String = "\t", listSep: String = ",", categoricalBucketSep: String = "|")(statistic: CustomerToBusinessStatistics): String = {
+    def categoryBucketToSV(bucket: CategoricalBucket): String = bucket match {
+      case CategoricalBucket(onlineActive, acornTypeId, gender, maritalStatusId, occupationId) =>
+        List(onlineActive.toString, acornTypeId, gender, maritalStatusId.getOrElse(""), occupationId.getOrElse(""))
+        .mkString(categoricalBucketSep)
+    }
+    import statistic._
+
+    List(maskedCustomerId, generalizedCategoricalGroup.group.map(categoryBucketToSV).mkString(listSep),
+      generalizedCategoricalGroup.groupSize, amountSum, visits, merchantCategoryCode, businessName, businessTown,
+      businessPostcode.getOrElse("")).mkString(sep)
+  }
+
+  def fromSv(sep: String = "\t", listSep: String = ",", categoricalBucketSep: String = """\|""")(line: String): CustomerToBusinessStatistics =
+    line.split(sep, -1).toList match {
+      case List(maskedCustomerId, generalizedCategoricalGroup,
+      groupSize, amountSum, visits, merchantCategoryCode, businessName, businessTown, businessPostcode) =>
+
+        def svToCategoryBucket(categoryBucketString: String): CategoricalBucket =
+          categoryBucketString.split(categoricalBucketSep, -1).toList match {
+            case List(onlineActive, acornTypeId, gender, maritalStatusId, occupationId) =>
+              CategoricalBucket(onlineActive == "true", acornTypeId.toInt, gender, maritalStatusId.nonEmptyOption(_.toInt),
+                occupationId.nonEmptyOption(_.toInt))
+          }
+
+        CustomerToBusinessStatistics(maskedCustomerId.toLong,
+          GeneralizedCategoricalBucketGroup(
+            generalizedCategoricalGroup.split(listSep).map(svToCategoryBucket).toSet, groupSize.toInt
+          ),
+          amountSum.toDouble, visits.toInt, merchantCategoryCode, businessName, businessTown,
+          businessPostcode.nonEmptyOption
+        )
+    }
+}
+
+
+
+
+case class CustomerToBusinessStatistics(maskedCustomerId: Long,
+                                         generalizedCategoricalGroup: GeneralizedCategoricalBucketGroup,
+                                         amountSum: Double, visits: Int, merchantCategoryCode: String,
+                                         businessName: String, businessTown: String, businessPostcode: Option[String]) {
+def onlineActive: Set[Boolean] = generalizedCategoricalGroup.group.map(_.onlineActive)
+
+def acornTypeId: Set[Int] = generalizedCategoricalGroup.group.map(_.acornTypeId)
+
+def gender: Set[String] = generalizedCategoricalGroup.group.map(_.gender)
+
+def maritalStatusId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.maritalStatusId)
+
+def businessKey: (String, String) = (businessName, businessTown)
+
+def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)}
