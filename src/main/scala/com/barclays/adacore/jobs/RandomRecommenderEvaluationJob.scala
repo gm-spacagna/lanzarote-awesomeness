@@ -33,7 +33,9 @@ case object RandomRecommenderEvaluationJob {
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
 
-    Logger().info("MAP@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(recommender, trainingData, testData, conf.n(), conf.evaluationSamplingFraction()))
-    Logger().info("LanzaroteBest@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(rafvicRec, trainingData, testData, conf.n(), conf.evaluationSamplingFraction()))
+    Logger().info("MAP@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(recommender, trainingData,
+      testData, conf.n(), conf.evaluationSamplingFraction()))
+    Logger().info("LanzaroteBest@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(rafvicRec,
+      trainingData, testData, conf.n(), conf.evaluationSamplingFraction()))
   }
 }
