@@ -28,43 +28,38 @@ case class Item2ItemConditionalProbabilityRecommender(@transient sc: SparkContex
           .option(businessKey1 -> List(businessKey2 -> conditionalProb))
       }
       .reduceByKey(_ ++ _)
-      .collect().toMap)
+      .collect().toMap
+    )
 
     val rankedBusinessesByNumberOfCustomers = sc.broadcast(
-      businessKeyToCustomerSet.mapValues(_.size).sortBy(_._2, ascending = false).collect().toList)
+      businessKeyToCustomerSet.mapValues(_.size.toDouble).sortBy(_._2, ascending = false).collect().toList
+    )
 
     filteredCustomersAndBusinesses.unpersist()
     businessKeyToCustomerSet.unpersist()
 
-
     new Recommender {
       // returns customerId -> List[(merchantName, merchantTown)]
-      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] = {
-        customers.flatMap(customerId =>
-          customerIdToBusinessSet.value.get(customerId)
-          .map(customerBusinessKeys => for {
-            customerBusinessKeys <- customerIdToBusinessSet.value.get(customerId).toList
-            customerBusinessKey <- customerBusinessKeys
-            similarityRow <- item2itemMatrix.value.get(customerBusinessKey).toList
-            (similarBusiness, conditionalProb) <- similarityRow
-            if !customerBusinessKeys.contains(similarBusiness)
-          } yield (customerId, similarBusiness) -> conditionalProb
-          ).getOrElse(rankedBusinessesByNumberOfCustomers.value.take(n).map {
-            case (businessKey, rank) => (customerId, businessKey) -> rank.toDouble
-          }
-          ))
-        .reduceByKey(_ + _)
-        .groupBy(_._1._1)
-        .mapValues(_.map {
-          case ((_, businessKey), conditionalProb) => businessKey -> conditionalProb
-        })
-        .mapValues(businessesScores => {
-          val recommendations = TopElements.topN(businessesScores)(_._2, n).map(_._1)
-          if (recommendations.size >= n) recommendations
-          else (recommendations ++
-            (rankedBusinessesByNumberOfCustomers.value.take(n).map(_._1).toSet -- recommendations)).take(n)
-        })
-      }
+      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
+        customers.map(customerId =>
+          customerId ->
+            ((customerIdToBusinessSet.value.get(customerId) match {
+              case Some(customerBusinessKeys) =>
+                (for {
+                  customerBusinessKey <- customerBusinessKeys
+                  similarityRow <- item2itemMatrix.value.get(customerBusinessKey).toList
+                  (similarBusiness, conditionalProb) <- similarityRow
+                  if !customerBusinessKeys.contains(similarBusiness)
+                } yield similarBusiness -> conditionalProb)
+                .groupBy(_._1).mapValues(_.map(_._2).sum).toList
+              case None => rankedBusinessesByNumberOfCustomers.value.take(n)
+            }) |> { businessesScores =>
+              val recommendations = TopElements.topN(businessesScores)(_._2, n).map(_._1)
+              if (recommendations.size >= n) recommendations
+              else (recommendations ++
+                (rankedBusinessesByNumberOfCustomers.value.take(n).map(_._1).toSet -- recommendations)).take(n)
+            })
+        )
     }
   }
 }
