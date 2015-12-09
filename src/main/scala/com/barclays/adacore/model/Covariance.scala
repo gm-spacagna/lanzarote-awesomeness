@@ -16,7 +16,7 @@ import scalaz.Scalaz._
 case object Covariance {
 
   def features(records: RDD[AnonymizedRecord])
-              (implicit minKTx: Int = 10, minAmountPerMerchant: Double = 100.0, minMerchantsPerCustomers: Int = 7):
+              (implicit minKTx: Int = 10, minAmountPerMerchant: Double = 100.0, minCustomersPerMerchant: Int = 7):
   (RDD[((String, String), SparseVector[Double])], RDD[(Long, List[(String, String)])]) = {
     val entries: RDD[((Long, (String, String)), (Int, Double))] =
       records.keyBy(r => (r.maskedCustomerId, ETL.businessID(r)))
@@ -39,7 +39,7 @@ case object Covariance {
      .mapPartitions(part => {
        val custIdxBV: Map[Long, Long] = custIdx.value
 
-       part.filter(_._2.size > minMerchantsPerCustomers)
+       part.filter(_._2.size > minCustomersPerMerchant)
        .map(e => {
          val (bId, col) = e
          val mapIdxVal = col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble)
