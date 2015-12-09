@@ -11,24 +11,21 @@ import scalaz.Scalaz._
 class LanzaroteCoach() extends RecommenderTrainer {
   override def train(data: RDD[AnonymizedRecord]): Recommender = {
     val (features, history) = Covariance.features(data)
-    val (cov, idx) = features |> Covariance.toCovarianceScore
-    LanzaroteBest(cov, idx, history)
+    val scores: RDD[((String, String), List[((String, String), Double)])] = features |> Covariance.toCovarianceScore
+    LanzaroteBest(scores, history)
   }
 }
 
-case class LanzaroteBest(knowledge: Matrix, idx: Map[(String, String), Int], userHistory: RDD[(Long, List[(String, String)])])
-  extends Recommender {
-
-  val ridx: Map[Int, (String, String)] = idx.map(e => e._2 -> e._1)
-
-  def getBestForId(rowId: Int): Int = {
-    (for {
-      j <- (0 to knowledge.numCols - 1) if j != rowId
-      v = knowledge.apply(rowId, j)
-    } yield (v, j))
-    .foldLeft((-1.0, -1))((acc, vi) => if (acc._1 < vi._1) vi else acc)._2
-  }
+case class LanzaroteBest(scores: RDD[((String, String), List[((String, String), Double)])],
+                         history: RDD[(Long, List[(String, String)])]) extends Recommender {
 
   override def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
-    customers.map(c => c -> userHistory.lookup(c)).mapValues(l => l.head.map(k => ridx(getBestForId(idx(k)))))
+    customers.map(c =>
+      c -> history.lookup(c) match {
+        case (_, res) if res.isEmpty =>
+          c -> scores.take(n).map(_._2.head._1).toList
+
+        case (_, res :: Nil) if res.size == 1 =>
+          c -> res.flatMap(k => scores.lookup(k).head.take(n).map(_._1))
+      })
 }
