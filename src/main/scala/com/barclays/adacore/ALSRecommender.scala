@@ -40,6 +40,7 @@ case class ALSRecommender(@transient sc: SparkContext, rank: Int, numIterations:
 
         customerId.toLong ->
           recommendableBusinesses.foldLeft((Set.empty[(Int, Double)], Double.MaxValue)) {
+            // TODO: refactor with topN
             case (accumulator@(topBusinesses, minScore), businessId) =>
               val businessVector = new DoubleMatrix(businessFeatures.value(businessId))
               val score = userVector.dot(businessVector)
