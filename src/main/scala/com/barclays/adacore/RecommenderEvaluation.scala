@@ -26,14 +26,14 @@ case class RecommenderEvaluation(@transient sc: SparkContext) {
     (recordsWithTestLabel.filter(!_._2).keys, recordsWithTestLabel.filter(_._2).keys)
   }
 
-  def evaluate(recommender: RecommenderTrainer,
+  def evaluate(recommenderTrainer: RecommenderTrainer,
                trainingData: RDD[AnonymizedRecord],
                testData: RDD[AnonymizedRecord],
                n: Int = 100, evaluationSamplingFraction: Double): Double = {
     val testCustomers = testData.map(_.maskedCustomerId).distinct().sample(false, evaluationSamplingFraction).cache()
 
     val recommendations: RDD[(Long, List[(String, String)])] =
-      recommender.train(trainingData)
+      recommenderTrainer.train(trainingData)
       .recommendations(testCustomers, n)
       .cache()
 

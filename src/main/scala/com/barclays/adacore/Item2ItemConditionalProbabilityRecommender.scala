@@ -6,7 +6,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import scalaz.Scalaz._
 
-case class Item2ItemConditionalProbabilityRecommender(sc: SparkContext, minNumTransactions: Int, maxDepth: Int) extends RecommenderTrainer {
+case class Item2ItemConditionalProbabilityRecommender(@transient sc: SparkContext, minNumTransactions: Int) extends RecommenderTrainer {
   def train(data: RDD[AnonymizedRecord]): Recommender = {
 
     val filteredCustomersAndBusinesses: RDD[(Long, (String, String))] =
@@ -30,25 +30,40 @@ case class Item2ItemConditionalProbabilityRecommender(sc: SparkContext, minNumTr
       .reduceByKey(_ ++ _)
       .collect().toMap)
 
+    val rankedBusinessesByNumberOfCustomers = sc.broadcast(
+      businessKeyToCustomerSet.mapValues(_.size).sortBy(_._2, ascending = false).collect().toList)
+
     filteredCustomersAndBusinesses.unpersist()
     businessKeyToCustomerSet.unpersist()
+
 
     new Recommender {
       // returns customerId -> List[(merchantName, merchantTown)]
       def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] = {
-        (for {
-          customerId <- customers
-          customerBusinessKeys = customerIdToBusinessSet.value(customerId)
-          customerBusinessKey <- customerBusinessKeys
-          (similarBusiness, conditionalProb) <- item2itemMatrix.value(customerBusinessKey)
-          if !customerBusinessKeys.contains(similarBusiness)
-        } yield (customerId, similarBusiness) -> conditionalProb
-          )
+        customers.flatMap(customerId =>
+          customerIdToBusinessSet.value.get(customerId)
+          .map(customerBusinessKeys => for {
+            customerBusinessKeys <- customerIdToBusinessSet.value.get(customerId).toList
+            customerBusinessKey <- customerBusinessKeys
+            similarityRow <- item2itemMatrix.value.get(customerBusinessKey).toList
+            (similarBusiness, conditionalProb) <- similarityRow
+            if !customerBusinessKeys.contains(similarBusiness)
+          } yield (customerId, similarBusiness) -> conditionalProb
+          ).getOrElse(rankedBusinessesByNumberOfCustomers.value.take(n).map {
+            case (businessKey, rank) => (customerId, businessKey) -> rank.toDouble
+          }
+          ))
         .reduceByKey(_ + _)
         .groupBy(_._1._1)
-        .mapValues(businesses =>
-          TopElements.topN[((Long, (String, String)), Double)](businesses, _._2, n).map(_._1._2)
-        )
+        .mapValues(_.map {
+          case ((_, businessKey), conditionalProb) => businessKey -> conditionalProb
+        })
+        .mapValues(businessesScores => {
+          val recommendations = TopElements.topN(businessesScores)(_._2, n).map(_._1)
+          if (recommendations.size >= n) recommendations
+          else (recommendations ++
+            (rankedBusinessesByNumberOfCustomers.value.take(n).map(_._1).toSet -- recommendations)).take(n)
+        })
       }
     }
   }
