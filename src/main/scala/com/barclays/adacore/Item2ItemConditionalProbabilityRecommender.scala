@@ -1,5 +1,6 @@
 package com.barclays.adacore
 
+import com.barclays.adacore.utils.TopElements
 import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
@@ -44,7 +45,10 @@ case class Item2ItemConditionalProbabilityRecommender(sc: SparkContext, minNumTr
         } yield (customerId, similarBusiness) -> conditionalProb
           )
         .reduceByKey(_ + _)
-        .groupBy(_._1._1).mapValues(_.toList.sortBy(_._2).reverse.take(n).map(_._1._2))
+        .groupBy(_._1._1)
+        .mapValues(businesses =>
+          TopElements.topN[((Long, (String, String)), Double)](businesses, _._2, n).map(_._1._2)
+        )
       }
     }
   }
