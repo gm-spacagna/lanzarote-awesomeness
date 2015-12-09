@@ -43,16 +43,17 @@ case object DataCleaningJob {
 
 
     val filteredRecords = anonymizedRecords.filter(t => badTowns.filter(town => t.businessTown.contains(town)).size == 0)
-
+    val minTransPerUser = conf.minTransPerUser()
+    val minTransPerBusiness = conf.minTransPerBusiness()
     val activeUsers = filteredRecords.map(transaction => (
       transaction.maskedCustomerId, 1))
                       .reduceByKey(_ + _).
-                      filter(_._2 > conf.minTransPerUser()).collect().map(_._1).toSet
+                      filter(_._2 > minTransPerUser).collect().map(_._1).toSet
     val activeBusinesses = filteredRecords.map(transaction => ((
       transaction.businessName,
       transaction.businessPostcode,
       transaction.businessTown
-      ), 1)).reduceByKey(_ + _).filter(_._2 > conf.minTransPerBusiness()).collect().map(_._1).toSet
+      ), 1)).reduceByKey(_ + _).filter(_._2 > minTransPerBusiness).collect().map(_._1).toSet
 
     val activeUsersBV = sc.broadcast(activeUsers)
     val activeBusinessesBV = sc.broadcast(activeBusinesses)
