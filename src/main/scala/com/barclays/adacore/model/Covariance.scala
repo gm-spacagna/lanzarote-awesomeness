@@ -15,12 +15,14 @@ import scalaz.Scalaz._
 
 case object Covariance {
 
-  def features(records: RDD[AnonymizedRecord])(implicit minKTx: Int = 5):
+  def features(records: RDD[AnonymizedRecord])
+              (implicit minKTx: Int = 10, minAmountPerMerchant: Double = 100.0, minMerchantsPerCustomers: Int = 7):
   (RDD[((String, String), SparseVector[Double])], RDD[(Long, List[(String, String)])]) = {
     val entries: RDD[((Long, (String, String)), (Int, Double))] =
       records.keyBy(r => (r.maskedCustomerId, ETL.businessID(r)))
       .mapValues(value => (1, value.amount))
       .reduceByKey(_ |+| _)
+      .filter(v => v._2._1 > minKTx & v._2._2 == minAmountPerMerchant)
 
     val businessIdx = entries.map(_._1._2).distinct.zipWithIndex.mapValues(_.toInt).collect().toMap
 
@@ -31,17 +33,18 @@ case object Covariance {
       .reduceByKey(_ |+| _)
       .mapValues(v => v.filter(_._2._1 > minKTx).sortBy(el => -el._2._2).map(_._1))
 
-    (entries.keyBy(_._1._2).mapValues(v => List((v._1._1, v._2)))
+    (entries.keyBy(_._1._2)
+     .mapValues(v => List((v._1._1, v._2)))
      .reduceByKey(_ |+| _)
      .mapPartitions(part => {
        val custIdxBV: Map[Long, Long] = custIdx.value
 
-       part.map(e => {
+       part.filter(_._2.size > minMerchantsPerCustomers)
+       .map(e => {
          val (bId, col) = e
          val mapIdxVal = col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble)
                          .sortBy(_._1).toArray
          val sv = new SparseVector[Double](mapIdxVal.map(_._1), mapIdxVal.map(_._2), custIdxBV.size)
-         //         val sv = SparseArray.create[Double](custIdxBV.size)(mapIdxVal.product)
          (bId, sv)
        })
      }), history)
