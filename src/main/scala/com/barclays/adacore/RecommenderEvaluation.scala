@@ -30,10 +30,19 @@ case class RecommenderEvaluation(@transient sc: SparkContext) {
                trainingData: RDD[AnonymizedRecord],
                testData: RDD[AnonymizedRecord],
                n: Int = 100, evaluationSamplingFraction: Double): Double = {
+    val testCustomers = testData.map(_.maskedCustomerId).distinct().sample(false, evaluationSamplingFraction).cache()
+
     val recommendations: RDD[(Long, List[(String, String)])] =
       recommender.train(trainingData)
-      .recommendations(testData.map(_.maskedCustomerId).distinct().sample(false, evaluationSamplingFraction), n)
+      .recommendations(testCustomers, n)
       .cache()
+
+    assert(recommendations.keys.collect().toSet == testCustomers.collect().toSet,
+      "testCustomers is not equals to the recommendation customers")
+
+    assert(recommendations.filter(_._2.size != n).count == 0,
+      "not all of the customer recommendations have exactly " + n + "  businesses")
+
     val evaluation: RDD[(Long, Set[(String, String)])] =
       testData.keyBy(_.maskedCustomerId).mapValues(_.businessKey).distinct().mapValues(Set(_)).reduceByKey(_ ++ _)
     MAP(n, recommendations, evaluation)
@@ -61,7 +70,7 @@ case class RandomRecommender(@transient sc: SparkContext) extends RecommenderTra
     new Recommender {
       // returns customerId -> List[(merchantName, merchantTown)]
       def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
-        customers.map(customerId => customerId -> customerIdToTrainingBusinesses.value(customerId))
+        customers.map(customerId => customerId -> customerIdToTrainingBusinesses.value.getOrElse(customerId, Set.empty))
         .mapValues(trainingBusinesses => (businessesBV.value -- trainingBusinesses).take(n).toList)
     }
   }
