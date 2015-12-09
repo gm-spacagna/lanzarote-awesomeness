@@ -32,7 +32,7 @@ case object Covariance {
 
        part.map(e => {
          val (bId, col) = e
-         val sv = Vectors.sparse(businessIdx.size, col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble))
+         val sv = Vectors.sparse(custIdxBV.size, col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble))
          (bId, sv)
        })
      }), history)
