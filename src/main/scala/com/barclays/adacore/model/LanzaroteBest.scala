@@ -1,6 +1,5 @@
 package com.barclays.adacore.model
 
-import com.barclays.adacore.model.LanzaroteBest
 import com.barclays.adacore.{RecommenderTrainer, AnonymizedRecord, Recommender}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
@@ -9,13 +8,12 @@ import org.apache.spark.mllib.linalg.Matrix
 import scala.collection.immutable.IndexedSeq
 import scalaz.Scalaz._
 
-case object LanzaroteCoach extends RecommenderTrainer {
+class LanzaroteCoach() extends RecommenderTrainer {
   override def train(data: RDD[AnonymizedRecord]): Recommender = {
     val (features, history) = Covariance.features(data)
     val (cov, idx) = features |> Covariance.toCovariance
     LanzaroteBest(cov, idx, history)
   }
-
 }
 
 case class LanzaroteBest(knowledge: Matrix, idx: Map[(String, String), Int], userHistory: RDD[(Long, List[(String, String)])])
