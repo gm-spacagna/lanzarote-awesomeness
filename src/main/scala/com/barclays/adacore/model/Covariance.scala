@@ -1,16 +1,22 @@
 package com.barclays.adacore.model
 
+import breeze.collection.mutable.SparseArray
 import com.barclays.adacore.AnonymizedRecord
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.mllib.linalg.{Matrix, Vector, Vectors, SparseVector}
+import breeze.linalg._
+import breeze.linalg.SparseVector
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.rdd.RDD
 
+import org.apache.spark.mllib.linalg.Matrix
+
+import scala.collection.immutable.IndexedSeq
 import scalaz.Scalaz._
 
 case object Covariance {
 
-  def features(records: RDD[AnonymizedRecord])(implicit minKTx: Int = 5): (RDD[((String, String), Vector)], RDD[(Long, List[(String, String)])]) = {
+  def features(records: RDD[AnonymizedRecord])(implicit minKTx: Int = 5):
+  (RDD[((String, String), SparseVector[Double])], RDD[(Long, List[(String, String)])]) = {
     val entries: RDD[((Long, (String, String)), (Int, Double))] =
       records.keyBy(r => (r.maskedCustomerId, ETL.businessID(r)))
       .mapValues(value => (1, value.amount))
@@ -32,14 +38,57 @@ case object Covariance {
 
        part.map(e => {
          val (bId, col) = e
-         val sv = Vectors.sparse(custIdxBV.size, col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble))
+         val mapIdxVal = col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble)
+                         .sortBy(_._1).toArray
+         val sv = new SparseVector[Double](mapIdxVal.map(_._1), mapIdxVal.map(_._2), custIdxBV.size)
+         //         val sv = SparseArray.create[Double](custIdxBV.size)(mapIdxVal.product)
          (bId, sv)
        })
      }), history)
   }
 
-  def toCovariance(features: RDD[((String, String), Vector)]): (Matrix, Map[(String, String), Int]) = {
-    val data = new RowMatrix(features.map(_._2))
-    (data.computeCovariance(), features.map(_._1).collect().zipWithIndex.toMap)
+  def toCovarianceScore(features: RDD[((String, String), SparseVector[Double])]): RDD[((String, String), List[((String, String), Double)])] = {
+    val keys: Array[(String, String)] = features.keys.collect
+    val numFeatures = keys.length
+
+    val pairs: IndexedSeq[((String, String), (String, String))] = for {
+      cur <- 0 to (numFeatures - 1)
+      other <- (cur + 1) to (numFeatures - 1)
+    } yield (keys(cur), keys(other))
+
+    val pairsBV = features.context.broadcast(pairs)
+
+    features.map(el => (el._1, el._2 - DenseVector.fill[Double](el._2.size)(el._2.sum / el._2.size))) //- (el._2.values.sum / el._2.size)
+    .mapPartitions(part => {
+      val pairsPart = pairsBV.value
+
+      part.flatMap(el => {
+        pairsPart.flatMap(_ match {
+          case (l, r) if l == el._1 => Some((l, r), List(Left(el._2)))
+          case (l, r) if r == el._1 => Some((l, r), List(Right(el._2)))
+          case _ => None
+        })
+      })
+    })
+    .reduceByKey(_ |+| _)
+    .flatMap(p => {
+      p match {
+        case (k, Left(v1) :: Right(v2) :: Nil) =>
+          val res = v1.t * v2
+          Some(List(k -> res, k.swap -> res))
+
+        case (k, Right(v1) :: Left(v2) :: Nil) =>
+          val res = v1.t * v2
+          Some(List(k -> res, k.swap -> res))
+
+        case (k, badList) =>
+          println(">>>>>>>>>>>>>>>>>>>WHAT THE HECK?<<<<<<<<<<<<<<<<<<<<<")
+          None
+      }
+    })
+    .flatMap(identity)
+    .map(e => e._1._1 -> List((e._1._2, e._2)))
+    .reduceByKey(_ |+| _)
+    .map(e => (e._1, e._2.sortBy(-_._2)))
   }
 }
