@@ -2,6 +2,7 @@ package com.barclays.adacore.model
 
 import breeze.collection.mutable.SparseArray
 import com.barclays.adacore.AnonymizedRecord
+import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import breeze.linalg._
 import breeze.linalg.SparseVector
@@ -17,21 +18,28 @@ case object Covariance {
 
   def features(records: RDD[AnonymizedRecord])
               (implicit minKTx: Int = 10, minAmountPerMerchant: Double = 100.0, minCustomersPerMerchant: Int = 7):
-  (RDD[((String, String), SparseVector[Double])], RDD[(Long, List[(String, String)])]) = {
+  (Map[(String, String), SparseVector[Double]], RDD[(Long, List[(String, String)])]) = {
     val entries: RDD[((Long, (String, String)), (Int, Double))] =
       records.keyBy(r => (r.maskedCustomerId, ETL.businessID(r)))
       .mapValues(value => (1, value.amount))
       .reduceByKey(_ |+| _)
-      .filter(v => v._2._1 > minKTx & v._2._2 == minAmountPerMerchant)
+    //      .filter(v => v._2._1 > minKTx & v._2._2 == minAmountPerMerchant)
+
+    println("FEATURES>>ENTRIES " + entries.count() + "  DATA " + records.count())
 
     val businessIdx = entries.map(_._1._2).distinct.zipWithIndex.mapValues(_.toInt).collect().toMap
 
+    println("FEATURES>>BUSINESS_IDX " + businessIdx.size)
     val custIdx: Broadcast[Map[Long, Long]] = records.context.broadcast(entries.map(_._1._1).distinct().zipWithIndex().collect().toMap)
+
+    println("FEATURES>>CUST_IDX " + custIdx.value.size)
 
     val history: RDD[(Long, List[(String, String)])] =
       entries.map(e => e._1._1 -> List((e._1._2, e._2)))
       .reduceByKey(_ |+| _)
       .mapValues(v => v.filter(_._2._1 > minKTx).sortBy(el => -el._2._2).map(_._1))
+
+    println("FEATURES>>HISTORY " + history.count())
 
     (entries.keyBy(_._1._2)
      .mapValues(v => List((v._1._1, v._2)))
@@ -39,7 +47,8 @@ case object Covariance {
      .mapPartitions(part => {
        val custIdxBV: Map[Long, Long] = custIdx.value
 
-       part.filter(_._2.size > minCustomersPerMerchant)
+       //       part.filter(_._2.size > minCustomersPerMerchant)
+       part
        .map(e => {
          val (bId, col) = e
          val mapIdxVal = col.map(el => custIdxBV(el._1).toInt -> el._2._1.toDouble)
@@ -47,51 +56,32 @@ case object Covariance {
          val sv = new SparseVector[Double](mapIdxVal.map(_._1), mapIdxVal.map(_._2), custIdxBV.size)
          (bId, sv)
        })
-     }), history)
+     }).collect.toMap, history)
   }
 
-  def toCovarianceScore(features: RDD[((String, String), SparseVector[Double])]): RDD[((String, String), List[((String, String), Double)])] = {
-    val keys: Array[(String, String)] = features.keys.collect
+  def toCovarianceScore(sc: SparkContext)
+                       (features: Map[(String, String), SparseVector[Double]]): RDD[((String, String), List[((String, String), Double)])] = {
+    val keys: Array[(String, String)] = features.keys.toArray
     val numFeatures = keys.length
+    println("FEATURE KEYS: " + numFeatures)
 
     val pairs: IndexedSeq[((String, String), (String, String))] = for {
       cur <- 0 to (numFeatures - 1)
       other <- (cur + 1) to (numFeatures - 1)
     } yield (keys(cur), keys(other))
 
-    val pairsBV = features.context.broadcast(pairs)
+    val pairsRDD = sc.parallelize(pairs)
+    println("PAIRS :" + pairs.size)
 
-    features.map(el => (el._1, el._2 - DenseVector.fill[Double](el._2.size)(el._2.sum / el._2.size))) //- (el._2.values.sum / el._2.size)
-    .mapPartitions(part => {
-      val pairsPart = pairsBV.value
-
-      part.flatMap(el => {
-        pairsPart.flatMap(_ match {
-          case (l, r) if l == el._1 => Some((l, r), List(Left(el._2)))
-          case (l, r) if r == el._1 => Some((l, r), List(Right(el._2)))
-          case _ => None
-        })
-      })
+    pairsRDD.flatMap(p => p match {
+      case (l, r) =>
+        val v1 = features(l)
+        val v2 = features(r)
+        val res = v1.t * v2 / (v1.norm[SparseVector[Double], Double]() * v2.norm[SparseVector[Double], Double]())
+        List((l, r) -> res, (r, l) -> res)
     })
-    .reduceByKey(_ |+| _)
-    .flatMap(p => {
-      p match {
-        case (k, Left(v1) :: Right(v2) :: Nil) =>
-          val res = v1.t * v2
-          Some(List(k -> res, k.swap -> res))
-
-        case (k, Right(v1) :: Left(v2) :: Nil) =>
-          val res = v1.t * v2
-          Some(List(k -> res, k.swap -> res))
-
-        case (k, badList) =>
-          println(">>>>>>>>>>>>>>>>>>>WHAT THE HECK?<<<<<<<<<<<<<<<<<<<<<")
-          None
-      }
-    })
-    .flatMap(identity)
-    .map(e => e._1._1 -> List((e._1._2, e._2)))
-    .reduceByKey(_ |+| _)
+    .map(e => e._1._2 -> List((e._1._1, e._2)))
+    .reduceByKey(_ ++ _)
     .map(e => (e._1, e._2.sortBy(-_._2)))
   }
 }
