@@ -33,7 +33,7 @@ case object Item2ItemTanimotoCoefficientEvaluationJob {
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
     val recommenderTrainer =
-      Item2ItemConditionalProbabilityRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
+      Item2ItemTanimotoCoefficientRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
     Logger().info("MAP@" + conf.n() + "=" +
       RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())

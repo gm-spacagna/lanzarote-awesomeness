@@ -4,6 +4,7 @@ import com.barclays.adacore.utils.TopElements
 import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
+
 import scalaz.Scalaz._
 
 case class Item2ItemTanimotoCoefficientRecommender(@transient sc: SparkContext, minNumTransactions: Int) extends RecommenderTrainer {
@@ -22,8 +23,9 @@ case class Item2ItemTanimotoCoefficientRecommender(@transient sc: SparkContext, 
     val item2itemMatrix: Broadcast[Map[(String, String), List[((String, String), Double)]]] = sc.broadcast(
       businessKeyToCustomerSet.cartesian(businessKeyToCustomerSet).flatMap {
         case ((businessKey1, userSet1), (businessKey2, userSet2)) =>
-          val conditionalProb = userSet1.intersect(userSet2).size.toDouble / userSet2.size
-
+          val conditionalProb =
+            userSet1.intersect(userSet2).size.toDouble /
+              (userSet1.size + userSet2.size - userSet1.intersect(userSet2).size.toDouble)
           (businessKey1 != businessKey2 && conditionalProb > 0)
           .option(businessKey1 -> List(businessKey2 -> conditionalProb))
       }
