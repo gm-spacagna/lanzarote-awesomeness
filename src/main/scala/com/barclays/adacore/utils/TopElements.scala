@@ -1,7 +1,9 @@
 package com.barclays.adacore.utils
 
+import scala.reflect.ClassTag
+
 object TopElements {
-  def topN[T](elems: Iterable[T], scoreFunc: T => Double, n: Int): List[T] =
+  def topN[T: ClassTag](elems: Iterable[T])(scoreFunc: T => Double, n: Int): List[T] =
     elems.foldLeft((Set.empty[(T, Double)], Double.MaxValue)) {
       case (accumulator@(topElems, minScore), elem) =>
         val score = scoreFunc(elem)
