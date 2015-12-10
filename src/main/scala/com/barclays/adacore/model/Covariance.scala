@@ -70,7 +70,7 @@ case object Covariance {
       other <- (cur + 1) to (numFeatures - 1)
     } yield (keys(cur), keys(other))
 
-    val pairsRDD = sc.parallelize(pairs)
+    val pairsRDD = sc.parallelize(pairs, numSlices = 10000)
     println("PAIRS :" + pairs.size)
 
     pairsRDD.flatMap(p => p match {
