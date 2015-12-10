@@ -23,6 +23,7 @@ case object ALSEvaluationJob {
       val lambda = opt[Double](default = Some(0.01))
 
       val sampleFraction = opt[Double](default = Some(0.01))
+      val evaluationSamplingFraction = opt[Double](default = Some(1.0))
     }
 
     val sparkConf =
@@ -34,12 +35,15 @@ case object ALSEvaluationJob {
     Logger().info(conf.summary)
 
     val data = sc.textFile(conf.anonymizedDataPath()).coalesce(conf.partitions()).map(AnonymizedRecord.fromSv())
-    val recommender =
+    val recommenderTrainer =
       ALSRecommender(sc, conf.rank(), conf.numIterations(), conf.alpha(), conf.blocks(), conf.lambda(), conf.n(),
         conf.sampleFraction())
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
 
-    Logger().info("MAP@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(recommender, trainingData, testData, conf.n()))
+    Logger().info("MAP@" + conf.n() + "=" +
+      RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction()))
+
   }
 }
+
