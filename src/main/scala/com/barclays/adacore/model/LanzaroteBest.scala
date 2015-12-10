@@ -1,5 +1,6 @@
 package com.barclays.adacore.model
 
+import breeze.linalg.SparseVector
 import com.barclays.adacore.utils.Logger
 import com.barclays.adacore.{RecommenderTrainer, AnonymizedRecord, Recommender}
 import org.apache.spark.SparkContext
@@ -12,8 +13,10 @@ import scalaz.Scalaz._
 class LanzaroteCoach() extends RecommenderTrainer {
   override def train(data: RDD[AnonymizedRecord]): Recommender = {
     val (features, history) = Covariance.features(data.coalesce(16, shuffle = false))
-    println("FEATURES " + features.size + "   HISTORY " + history.count())
-    val scores: Map[(String, String), List[((String, String), Double)]] = Covariance.toCovarianceScore(data.context)(features)
+    println("FEATURES " + features.count() + "   HISTORY " + history.count())
+    features.saveAsObjectFile("/data/lanzarote/features/")
+    history.saveAsObjectFile("/data/lanzarote/history")
+    val scores = Covariance.toCovarianceScore(data.context)(features.collect.toMap)
     LanzaroteBest(scores, history)
   }
 }
