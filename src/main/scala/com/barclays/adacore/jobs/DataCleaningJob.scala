@@ -13,8 +13,9 @@ case object DataCleaningJob {
         descr = "The tables of the raw transactions data delimited by comma")
       val tmpFolder = opt[String](descr = "Overrides the directory used in spark.local.dir")
       val outputPath = opt[String](required = true, descr = "Output path of anonymized data")
-      val minTransPerBusiness = opt[Int](required = true, descr = "Minimum number of transactions per Businesses")
-      val minTransPerUser = opt[Int](required = true, descr = "Minimum number of transactions per User")
+      val outputPathCollapsed = opt[String](required = false,default = None, descr = "Output path of userToBusiness data")
+      val minTransPerBusiness = opt[Int](required = false, default = Option(10), descr = "Minimum number of transactions per Businesses")
+      val minTransPerUser = opt[Int](required = false, default = Option(5), descr = "Minimum number of transactions per User")
     }
 
     val sparkConf =
@@ -39,15 +40,18 @@ case object DataCleaningJob {
 
     val filteredRecords = anonymizedRecords.filter(t => !badTowns.exists(town => t.businessTown.contains(town)))
 
+    val minTransPerUser = conf.minTransPerUser()
+    val minTransPerBusiness = conf.minTransPerBusiness()
+
     val activeUsers: Set[Long] =
       filteredRecords.map(_.maskedCustomerId -> 1).reduceByKey(_ + _)
-      .filter(_._2 > conf.minTransPerUser()).collect().map(_._1).toSet
+      .filter(_._2 > minTransPerUser).collect().map(_._1).toSet
     val activeUsersBV = sc.broadcast(activeUsers)
 
     val activeBusinesses: Set[(String, String)] =
       filteredRecords.map(_.businessKey -> 1)
       .reduceByKey(_ + _)
-      .filter(_._2 > conf.minTransPerBusiness())
+      .filter(_._2 > minTransPerBusiness)
       .collect().map(_._1).toSet
     val activeBusinessesBV = sc.broadcast(activeBusinesses)
 
@@ -59,5 +63,30 @@ case object DataCleaningJob {
       " records after cleaning: " + filteredUserAmountBusiness.count())
 
     filteredUserAmountBusiness.map(AnonymizedRecord.toSv()).saveAsTextFile(conf.outputPath())
+
+    if (conf.outputPathCollapsed.get.isDefined) {
+      val customerToBusinessStatistics = filteredUserAmountBusiness.groupBy(line => (line.maskedCustomerId, line.businessKey)).map(grouped => grouped._2).
+                                         map(records => {
+                                           val spends = records.groupBy(row => row.maskedCustomerId).map(groups => groups._2.map(trans => trans.amount))
+                                           val sumSpends = spends.map(x => x.sum).head
+                                           val visits = spends.map(x => x.size).head
+                                           val firstElement = records.head
+
+                                           CustomerToBusinessStatistics(firstElement.maskedCustomerId,
+                                             firstElement.generalizedCategoricalGroup,
+                                             sumSpends,
+                                             visits,
+                                             firstElement.merchantCategoryCode,
+                                             firstElement.businessName,
+                                             firstElement.businessTown,
+                                             firstElement.businessPostcode)
+
+                                         })
+
+      customerToBusinessStatistics.map(CustomerToBusinessStatistics.toSv()).saveAsTextFile(conf.outputPathCollapsed())
+
+      Logger().info("records before collapsing: " + filteredUserAmountBusiness.count() +
+        " records after collapsing: " + customerToBusinessStatistics.count())
+    }
   }
 }
