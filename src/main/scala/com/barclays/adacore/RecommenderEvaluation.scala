@@ -22,27 +22,52 @@ case class RecommenderEvaluation(@transient sc: SparkContext) {
     (recordsWithTestLabel.filter(!_._2).keys, recordsWithTestLabel.filter(_._2).keys)
   }
 
-  def evaluate(recommender: Recommender,
+  def evaluate(recommenderTrainer: RecommenderTrainer,
                trainingData: RDD[AnonymizedRecord],
-               testData: RDD[AnonymizedRecord], n: Int = 100): Double = {
-    val recommendations: RDD[(Long, List[(String, String)])] = recommender.recommendations(trainingData).cache()
+               testData: RDD[AnonymizedRecord],
+               n: Int = 100, evaluationSamplingFraction: Double): Double = {
+    val testCustomers = testData.map(_.maskedCustomerId).distinct().sample(false, evaluationSamplingFraction).cache()
+
+    val recommendations: RDD[(Long, List[(String, String)])] =
+      recommenderTrainer.train(trainingData)
+      .recommendations(testCustomers, n)
+      .cache()
+
+    assert(recommendations.keys.collect().toSet == testCustomers.collect().toSet,
+      "testCustomers is not equals to the recommendation customers")
+
+    assert(recommendations.filter(_._2.size != n).count == 0,
+      "not all of the customer recommendations have exactly " + n + "  businesses")
+
     val evaluation: RDD[(Long, Set[(String, String)])] =
       testData.keyBy(_.maskedCustomerId).mapValues(_.businessKey).distinct().mapValues(Set(_)).reduceByKey(_ ++ _)
     MAP(n, recommendations, evaluation)
   }
 }
 
-trait Recommender {
+trait Recommender extends Serializable {
   // returns customerId -> List[(merchantName, merchantTown)]
-  def recommendations(data: RDD[AnonymizedRecord]): RDD[(Long, List[(String, String)])]
+  def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])]
 }
 
-case class RandomRecommender(@transient sc: SparkContext, n: Int) extends Recommender {
-  def recommendations(data: RDD[AnonymizedRecord]): RDD[(Long, List[(String, String)])] = {
+trait RecommenderTrainer {
+  def train(data: RDD[AnonymizedRecord]): Recommender
+}
 
+case class RandomRecommender(@transient sc: SparkContext) extends RecommenderTrainer {
+  def train(data: RDD[AnonymizedRecord]): Recommender = {
     val businessesBV = sc.broadcast(data.map(_.businessKey).distinct().collect().toSet)
 
-    data.keyBy(_.maskedCustomerId).mapValues(_.businessKey).distinct().mapValues(Set(_)).reduceByKey(_ ++ _)
-    .mapValues(trainingBusinesses => (businessesBV.value -- trainingBusinesses).take(n).toList)
+    val customerIdToTrainingBusinesses = sc.broadcast(
+      data.keyBy(_.maskedCustomerId).mapValues(_.businessKey).distinct().mapValues(Set(_))
+      .reduceByKey(_ ++ _).collect().toMap
+    )
+
+    new Recommender {
+      // returns customerId -> List[(merchantName, merchantTown)]
+      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
+        customers.map(customerId => customerId -> customerIdToTrainingBusinesses.value.getOrElse(customerId, Set.empty))
+        .mapValues(trainingBusinesses => (businessesBV.value -- trainingBusinesses).take(n).toList)
+    }
   }
 }
