@@ -71,7 +71,7 @@ case object Pimps {
   implicit class PimpedMapDouble[K](m: Map[K, Double]) {
     def normalize: Map[K, Double] = m.values.sum |> (total => m.mapValues(_ / total))
 
-    def product(m2: Map[K, Double]): Double = {
+    def productWithMap(m2: Map[K, Double]): Double = {
       (for {
         (k1, v1) <- m
         if m2.contains(k1)

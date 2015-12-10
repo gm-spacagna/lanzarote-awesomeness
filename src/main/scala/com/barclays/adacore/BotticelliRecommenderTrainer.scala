@@ -1,7 +1,7 @@
 package com.barclays.adacore
 
 import com.barclays.adacore.utils.Pimps._
-import com.barclays.adacore.utils.VPTree
+import com.barclays.adacore.utils.{TopElements, VPTree}
 import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
@@ -16,7 +16,7 @@ case class BotticelliCustomerFeatures(dayOfTheWeekWallet: Map[Int, Double],
                                       genderPdf: Map[String, Double],
                                       maritalStatusIdPdf: Map[Option[Int], Double],
                                       occupationIdPdf: Map[Option[Int], Double])
-case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusinessesPerNeighbour: Int) extends RecommenderTrainer {
+case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusinessesPerNeighbour: Int, k: Int) extends RecommenderTrainer {
   def train(data: RDD[AnonymizedRecord]): Recommender = {
 
     def wallet[T](data: RDD[AnonymizedRecord], func: (AnonymizedRecord => T)): RDD[(Long, Map[T, Double])] =
@@ -28,7 +28,12 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusin
       .mapValues(_.normalize)
 
     val businessWallets: Broadcast[Map[Long, Map[(String, String), Double]]] =
-      sc.broadcast(wallet(data, _.businessKey).mapValues(_.toList |> TopElems.collect().toMap)
+      sc.broadcast(
+        wallet(data, _.businessKey)
+        .mapValues(businessesScores =>
+          TopElements.topN(businessesScores.toList)(_._2, maxNumBusinessesPerNeighbour).toMap
+        ).collect().toMap
+      )
 
     val categoryWallets: Broadcast[Map[Long, Map[String, Double]]] =
       sc.broadcast(wallet(data, _.merchantCategoryCode).collect().toMap)
@@ -56,14 +61,14 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusin
 
     val distanceFunction: (BotticelliCustomerFeatures, BotticelliCustomerFeatures) => Double = {
       case ((customer1: BotticelliCustomerFeatures), (customer2: BotticelliCustomerFeatures)) =>
-        val num = customer1.dayOfTheWeekWallet.product(customer2.dayOfTheWeekWallet) +
-          customer1.postcodeSectorWallet.product(customer2.postcodeSectorWallet) +
-          customer1.categoryWallet.product(customer2.categoryWallet) +
-          customer1.onlineActivePdf.product(customer2.onlineActivePdf) +
-          customer1.acornTypeIdPdf.product(customer2.acornTypeIdPdf) +
-          customer1.genderPdf.product(customer2.genderPdf) +
-          customer1.maritalStatusIdPdf.product(customer2.maritalStatusIdPdf) +
-          customer1.occupationIdPdf.product(customer2.occupationIdPdf)
+        val num = customer1.dayOfTheWeekWallet.productWithMap(customer2.dayOfTheWeekWallet) +
+          customer1.postcodeSectorWallet.productWithMap(customer2.postcodeSectorWallet) +
+          customer1.categoryWallet.productWithMap(customer2.categoryWallet) +
+          customer1.onlineActivePdf.productWithMap(customer2.onlineActivePdf) +
+          customer1.acornTypeIdPdf.productWithMap(customer2.acornTypeIdPdf) +
+          customer1.genderPdf.productWithMap(customer2.genderPdf) +
+          customer1.maritalStatusIdPdf.productWithMap(customer2.maritalStatusIdPdf) +
+          customer1.occupationIdPdf.productWithMap(customer2.occupationIdPdf)
 
         val den1 =
           math.sqrt(customer1.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
@@ -71,7 +76,7 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusin
         val den2 =
           math.sqrt(customer2.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
 
-        num / (den1 * den2)
+        1 - (num / (den1 * den2))
     }
 
     val vpTree = VPTree(customerFeatures.map(_.swap), distanceFunction, 1)
@@ -80,12 +85,19 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext, maxNumBusin
 
     new Recommender {
       // returns customerId -> List[(merchantName, merchantTown)]
-      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] = {
-        customers.map(customerId => vpTreeBV.value.approximateNearest(customerFeaturesBV.value(customerId)))
+      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
+        customers.map(customerId => customerId -> {
+          val customerFeatures = customerFeaturesBV.value(customerId)
+          val recommendable =
+            (for {
+              (neighbourFeatures, neighbourId) <- vpTreeBV.value.approximateNearestN(customerFeatures, k).toList
+              distance = distanceFunction(customerFeatures, neighbourFeatures)
+              (neighbourBusiness, neighbourFrequency) <- businessWallets.value(neighbourId)
+            } yield neighbourBusiness -> (neighbourFrequency * distance))
+            .groupBy(_._1).mapValues(_.map(_._2).sum).toList
 
-
-        ???
-      }
+          TopElements.topN(recommendable)(_._2, n).map(_._1)
+        })
     }
   }
 }
