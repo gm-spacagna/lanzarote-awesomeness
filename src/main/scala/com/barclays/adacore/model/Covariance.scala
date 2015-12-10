@@ -18,7 +18,7 @@ case object Covariance {
 
   def features(records: RDD[AnonymizedRecord])
               (implicit minKTx: Int = 10, minAmountPerMerchant: Double = 100.0, minCustomersPerMerchant: Int = 7):
-  (Map[(String, String), SparseVector[Double]], RDD[(Long, List[(String, String)])]) = {
+  (Map[(String, String), SparseVector[Double]], RDD[(Long, Set[(String, String)])]) = {
     val entries: RDD[((Long, (String, String)), (Int, Double))] =
       records.keyBy(r => (r.maskedCustomerId, ETL.businessID(r)))
       .mapValues(value => (1, value.amount))
@@ -34,10 +34,10 @@ case object Covariance {
 
     println("FEATURES>>CUST_IDX " + custIdx.value.size)
 
-    val history: RDD[(Long, List[(String, String)])] =
+    val history: RDD[(Long, Set[(String, String)])] =
       entries.map(e => e._1._1 -> List((e._1._2, e._2)))
       .reduceByKey(_ |+| _)
-      .mapValues(v => v.filter(_._2._1 > minKTx).sortBy(el => -el._2._2).map(_._1))
+      .mapValues(v => v.filter(_._2._1 > minKTx).sortBy(el => -el._2._2).map(_._1).toSet)
 
     println("FEATURES>>HISTORY " + history.count())
 
@@ -60,7 +60,7 @@ case object Covariance {
   }
 
   def toCovarianceScore(sc: SparkContext)
-                       (features: Map[(String, String), SparseVector[Double]]): RDD[((String, String), List[((String, String), Double)])] = {
+                       (features: Map[(String, String), SparseVector[Double]]): Map[(String, String), List[((String, String), Double)]] = {
     val keys: Array[(String, String)] = features.keys.toArray
     val numFeatures = keys.length
     println("FEATURE KEYS: " + numFeatures)
@@ -83,5 +83,7 @@ case object Covariance {
     .map(e => e._1._2 -> List((e._1._1, e._2)))
     .reduceByKey(_ ++ _)
     .map(e => (e._1, e._2.sortBy(-_._2)))
+    .collect
+    .toMap
   }
 }
