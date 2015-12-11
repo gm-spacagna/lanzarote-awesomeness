@@ -1,6 +1,6 @@
 package com.barclays.adacore.utils
 
-class Similarities {
+case object Similarities {
 
 
   // *************************
