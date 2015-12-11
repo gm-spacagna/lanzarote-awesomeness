@@ -5,7 +5,7 @@ import com.barclays.adacore.utils.Logger
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
 
-case object BotticelliRecommenderEvaluationJob {
+case object KNeighboursRecommenderEvaluationJob {
   def main(args: Array[String]) {
     val conf = new ScallopConf(args) {
       val anonymizedDataPath = opt[String](required = true, descr = "The path of the anonymized data")
@@ -16,6 +16,7 @@ case object BotticelliRecommenderEvaluationJob {
       val trainingFraction = opt[Double](default = Some(0.8),
         descr = "the fraction of businesses to use in the training for each customer")
 
+      val minNumBusinessesPerCustomer = opt[Int](default = Some(5))
       val maxNumBusinessesPerNeighbour = opt[Int](default = Some(100))
       val maxPrecomputedRecommendations = opt[Int](default = Some(20))
       val k = opt[Int](default = Some(15))
@@ -35,8 +36,8 @@ case object BotticelliRecommenderEvaluationJob {
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
     val recommenderTrainer =
-      BotticelliRecommenderTrainer(sc, conf.maxNumBusinessesPerNeighbour(), conf.maxPrecomputedRecommendations(),
-        conf.k())
+      KNeighboursRecommenderTrainer(sc, conf.minNumBusinessesPerCustomer(), conf.maxNumBusinessesPerNeighbour(),
+        conf.maxPrecomputedRecommendations(), conf.k())
 
     Logger().info("MAP@" + conf.n() + "=" +
       RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
