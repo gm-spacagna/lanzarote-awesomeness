@@ -108,6 +108,10 @@ case object CustomerToBusinessStatistics {
     }
 }
 
+
+
+
+
 case class CustomerToBusinessStatistics(maskedCustomerId: Long,
                                         generalizedCategoricalGroup: GeneralizedCategoricalBucketGroup,
                                         amountSum: Double, visits: Int, merchantCategoryCode: String,
