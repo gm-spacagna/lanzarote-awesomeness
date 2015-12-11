@@ -7,11 +7,11 @@ import scala.reflect.ClassTag
 import scalaz.Scalaz._
 
 case object Pimps {
- implicit class PimpedString(str: String) {
-   def nonEmptyOption: Option[String] = str.nonEmpty.option(str)
+  implicit class PimpedString(str: String) {
+    def nonEmptyOption: Option[String] = str.nonEmpty.option(str)
 
-   def nonEmptyOption[T](f: String => T): Option[T] = str.nonEmpty.option(str).map(f)
- }
+    def nonEmptyOption[T](f: String => T): Option[T] = str.nonEmpty.option(str).map(f)
+  }
 
   implicit def longToDateTime(ts: Long): DateTime = new DateTime(ts)
 
@@ -66,6 +66,21 @@ case object Pimps {
     def mapTupled[U](f: (T1, T2) => U): Iterable[U] = l.map(f.tupled)
 
     def flatMapTupled[U](f: (T1, T2) => TraversableOnce[U]): Iterable[U] = l.flatMap(f.tupled)
+  }
+
+  implicit class PimpedMapDouble[K](m: Map[K, Double]) {
+    def normalize: Map[K, Double] = m.values.sum |> (total => m.mapValues(_ / total))
+
+    def productWithMap(m2: Map[K, Double]): Double = {
+      (for {
+        (k1, v1) <- m
+        if m2.contains(k1)
+      } yield v1 * m2(k1)).sum
+    }
+  }
+
+  implicit class PimpedMapInt[K](m: Map[K, Int]) {
+    def normalize: Map[K, Double] = m.values.sum |> (total => m.mapValues(_.toDouble / total))
   }
 
   implicit class PimpedSet[T](s: Set[T]) {
