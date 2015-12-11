@@ -11,16 +11,16 @@ case class Neighbour2ItemRecommenderTrainer(@transient sc: SparkContext,
                                             maxPrecomputedRecommendations: Int,
                                             k: Int) extends RecommenderTrainer {
   def train(data: RDD[AnonymizedRecord]): Recommender = {
+    val item2ItemMatrix: Map[(String, String), List[((String, String), Double)]] =
+      Item2ItemRecommender.item2ItemMatrixLocal(businessKeyToCustomerIdSet(data).collect().toMap,
+        Item2ItemRecommender.tanimotoSimilarity
+      )
+
     val customerFeatures: Array[(Long, KNeighboursCustomerFeatures)] =
       KNeighboursRecommenderTrainer.customerFeatures(sc, data, maxNumBusinessesPerNeighbour)
 
     val vpTree: VPTree[KNeighboursCustomerFeatures, Long] =
       KNeighboursRecommenderTrainer.vpTree(customerFeatures, minNumBusinessesPerCustomer)
-
-    val businessKeyToCustomerIdSetRDD: RDD[((String, String), Set[Long])] = businessKeyToCustomerIdSet(data)
-
-    val item2ItemMatrix: Map[(String, String), List[((String, String), Double)]] =
-      Item2ItemConditionalProbabilityRecommender.item2ItemMatrix(businessKeyToCustomerIdSetRDD).collect().toMap
 
     Logger().info("Pre-computing recommendations...")
     val preComputedRecommendationsBV: Broadcast[Map[Long, List[(String, String)]]] = sc.broadcast(
