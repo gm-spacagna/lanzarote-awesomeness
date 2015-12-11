@@ -25,7 +25,7 @@ case object AnonymizedRecord {
     def categoryBucketToSV(bucket: CategoricalBucket): String = bucket match {
       case CategoricalBucket(onlineActive, acornTypeId, gender, maritalStatusId, occupationId) =>
         List(onlineActive.toString, acornTypeId, gender, maritalStatusId.getOrElse(""), occupationId.getOrElse(""))
-          .mkString(categoricalBucketSep)
+        .mkString(categoricalBucketSep)
     }
     import record._
 
@@ -72,9 +72,6 @@ case class AnonymizedRecord(maskedCustomerId: Long, generalizedCategoricalGroup:
   def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)
 }
 
-
-
-
 case object CustomerToBusinessStatistics {
   def toSv(sep: String = "\t", listSep: String = ",", categoricalBucketSep: String = "|")(statistic: CustomerToBusinessStatistics): String = {
     def categoryBucketToSV(bucket: CategoricalBucket): String = bucket match {
@@ -111,21 +108,76 @@ case object CustomerToBusinessStatistics {
     }
 }
 
-
-
-
 case class CustomerToBusinessStatistics(maskedCustomerId: Long,
-                                         generalizedCategoricalGroup: GeneralizedCategoricalBucketGroup,
-                                         amountSum: Double, visits: Int, merchantCategoryCode: String,
-                                         businessName: String, businessTown: String, businessPostcode: Option[String]) {
-def onlineActive: Set[Boolean] = generalizedCategoricalGroup.group.map(_.onlineActive)
+                                        generalizedCategoricalGroup: GeneralizedCategoricalBucketGroup,
+                                        amountSum: Double, visits: Int, merchantCategoryCode: String,
+                                        businessName: String, businessTown: String, businessPostcode: Option[String]) {
+  def onlineActive: Set[Boolean] = generalizedCategoricalGroup.group.map(_.onlineActive)
 
-def acornTypeId: Set[Int] = generalizedCategoricalGroup.group.map(_.acornTypeId)
+  def acornTypeId: Set[Int] = generalizedCategoricalGroup.group.map(_.acornTypeId)
 
-def gender: Set[String] = generalizedCategoricalGroup.group.map(_.gender)
+  def gender: Set[String] = generalizedCategoricalGroup.group.map(_.gender)
 
-def maritalStatusId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.maritalStatusId)
+  def maritalStatusId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.maritalStatusId)
 
-def businessKey: (String, String) = (businessName, businessTown)
+  def businessKey: (String, String) = (businessName, businessTown)
 
-def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)}
+  def occupationId: Set[Option[Int]] = generalizedCategoricalGroup.group.map(_.occupationId)
+}
+
+
+
+case class CustomerToBusinessRating(maskedCustomerId: Long,
+                                    businessKey: (String, String),
+                                    visits: Int,
+                                    amount: Double,
+                                    merchantCategoryCode: String,
+                                    numRatersPerBusiness: Int,
+                                    totalAmountPerBusiness: Double,
+                                    totalVisitsPerBusiness: Int,
+                                    totalAmountPerCustomer: Double,
+                                    totalVisitsOfCustomer: Int,
+                                    totalBusinessesOfCustomer: Int
+                                     )
+
+
+case object CustomerToBusinessRating {
+  def toSv(sep: String = "\t", listSep: String = ",")(rating: CustomerToBusinessRating): String = {
+
+    import rating._
+    List(maskedCustomerId,
+      businessKey.productIterator.toList.mkString(listSep),
+      visits,amount,merchantCategoryCode,
+      numRatersPerBusiness,totalAmountPerBusiness,
+      totalVisitsPerBusiness, totalAmountPerCustomer, totalVisitsOfCustomer, totalBusinessesOfCustomer).mkString(sep)
+  }
+
+  def fromSv(sep: String = "\t", listSep: String = ",")(line: String): CustomerToBusinessRating =
+    line.split(sep, -1).toList match {
+      case List(maskedCustomerId,
+      businessKey,
+      visits,
+      amount,
+      merchantCategoryCode,
+      numRatersPerBusiness,
+      totalAmountPerBusiness,
+      totalVisitsPerBusiness,
+      totalAmountPerCustomer,
+      totalVisitsOfCustomer,
+      totalBusinessesOfCustomer) =>
+
+        CustomerToBusinessRating(
+          maskedCustomerId.toLong,
+          businessKey. split(listSep).toList  match {case List(a: String, b: String, _*) => (a, b)},
+          visits.toInt,
+          amount.toDouble,
+          merchantCategoryCode,
+          numRatersPerBusiness.toInt,
+          totalAmountPerBusiness.toDouble,
+          totalVisitsPerBusiness.toInt,
+          totalAmountPerCustomer.toDouble,
+          totalVisitsOfCustomer.toInt,
+          totalBusinessesOfCustomer.toInt
+        )
+    }
+}
