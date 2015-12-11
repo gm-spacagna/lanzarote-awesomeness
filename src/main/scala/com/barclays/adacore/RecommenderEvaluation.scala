@@ -56,6 +56,10 @@ trait Recommender extends Serializable {
 
 trait RecommenderTrainer {
   def train(data: RDD[AnonymizedRecord]): Recommender
+
+  def mostPopularBusinesses(data: RDD[AnonymizedRecord]): RDD[(String, String)] =
+    data.map(record => (record.businessKey, record.maskedCustomerId)).distinct()
+    .mapValues(_ => 1).reduceByKey(_ + _).sortBy(_._2, ascending = false).keys
 }
 
 case class RandomRecommender(@transient sc: SparkContext) extends RecommenderTrainer {

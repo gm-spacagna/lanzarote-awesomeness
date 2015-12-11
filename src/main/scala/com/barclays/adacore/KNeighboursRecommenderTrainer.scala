@@ -6,43 +6,25 @@ import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 
-case class BotticelliCustomerFeatures(dayOfTheWeekWallet: Map[Int, Double],
-                                      postcodeSectorWallet: Map[String, Double],
-                                      categoryWallet: Map[String, Double],
-                                      businessWallet: Map[(String, String), Double],
-                                      onlineActivePdf: Map[Boolean, Double],
-                                      acornTypeIdPdf: Map[Int, Double],
-                                      genderPdf: Map[String, Double],
-                                      maritalStatusIdPdf: Map[Int, Double],
-                                      occupationIdPdf: Map[Int, Double])
+case class KNeighboursCustomerFeatures(dayOfTheWeekWallet: Map[Int, Double],
+                                       postcodeSectorWallet: Map[String, Double],
+                                       categoryWallet: Map[String, Double],
+                                       businessWallet: Map[(String, String), Double],
+                                       onlineActivePdf: Map[Boolean, Double],
+                                       acornTypeIdPdf: Map[Int, Double],
+                                       genderPdf: Map[String, Double],
+                                       maritalStatusIdPdf: Map[Int, Double],
+                                       occupationIdPdf: Map[Int, Double])
 
-case class BotticelliRecommenderTrainer(@transient sc: SparkContext,
-                                        minNumBusinessesPerCustomer: Int,
-                                        maxNumBusinessesPerNeighbour: Int,
-                                        maxPrecomputedRecommendations: Int,
-                                        k: Int) extends RecommenderTrainer {
-  def train(data: RDD[AnonymizedRecord]): Recommender = {
-    //    val filteredCustomersAndBusinesses: RDD[(Long, (String, String))] =
-    //      data.map(record => (record.maskedCustomerId, record.businessKey) -> 1).reduceByKey(_ + _)
-    //      .filter(_._2 >= minNumTransactions).keys.cache()
-
-    def wallet[T](data: RDD[AnonymizedRecord], func: (AnonymizedRecord => T)): RDD[(Long, Map[T, Double])] =
-      data.map(record => (record.maskedCustomerId, func(record)) -> 1).reduceByKey(_ + _)
-      .groupBy {
-        case ((customerId, _), _) => customerId
-      }
-      .mapValues(
-        _.map {
-          case ((_, t), count) => t -> count
-        }
-        .toMap.normalize.toList.toMap
-      )
+case object KNeighboursRecommenderTrainer {
+  def customerFeatures(@transient sc: SparkContext, data: RDD[AnonymizedRecord],
+                       maxNumBusinessesPerNeighbour: Int): Array[(Long, KNeighboursCustomerFeatures)] = {
 
     Logger().info("Computing the category wallets...")
     val categoryWalletsBV: Broadcast[Map[Long, Map[String, Double]]] =
       sc.broadcast(wallet(data, _.merchantCategoryCode).collect().toMap)
 
-    Logger().info("Computing the dai of week wallets...")
+    Logger().info("Computing the day of week wallets...")
     val dayOfTheWeekWalletsBV: Broadcast[Map[Long, Map[Int, Double]]] =
       sc.broadcast(wallet(data, _.dayOfWeek).collect().toMap)
 
@@ -59,10 +41,10 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext,
     )
 
     Logger().info("Computing the final customer features...")
-    val customerFeatures: Array[(Long, BotticelliCustomerFeatures)] =
+    val customerFeatures: Array[(Long, KNeighboursCustomerFeatures)] =
       data.map(record => record.maskedCustomerId -> record.generalizedCategoricalGroup.group).distinct().map {
         case (customerId, categoricalGroup) =>
-          customerId -> BotticelliCustomerFeatures(dayOfTheWeekWallet = dayOfTheWeekWalletsBV.value(customerId),
+          customerId -> KNeighboursCustomerFeatures(dayOfTheWeekWallet = dayOfTheWeekWalletsBV.value(customerId),
             postcodeSectorWallet = postcodeSectorWalletsBV.value.getOrElse(customerId, Map.empty[String, Double]),
             categoryWallet = categoryWalletsBV.value(customerId),
             businessWallet = businessWalletsBV.value(customerId),
@@ -80,31 +62,63 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext,
     dayOfTheWeekWalletsBV.destroy()
     businessWalletsBV.destroy()
 
-    val distanceFunction: (BotticelliCustomerFeatures, BotticelliCustomerFeatures) => Double = {
-      case ((customer1: BotticelliCustomerFeatures), (customer2: BotticelliCustomerFeatures)) =>
-        val num = customer1.dayOfTheWeekWallet.productWithMap(customer2.dayOfTheWeekWallet) +
-          customer1.postcodeSectorWallet.productWithMap(customer2.postcodeSectorWallet) +
-          customer1.categoryWallet.productWithMap(customer2.categoryWallet) +
-          customer1.businessWallet.productWithMap(customer2.businessWallet) +
-          customer1.onlineActivePdf.productWithMap(customer2.onlineActivePdf) +
-          customer1.acornTypeIdPdf.productWithMap(customer2.acornTypeIdPdf) +
-          customer1.genderPdf.productWithMap(customer2.genderPdf) +
-          customer1.maritalStatusIdPdf.productWithMap(customer2.maritalStatusIdPdf) +
-          customer1.occupationIdPdf.productWithMap(customer2.occupationIdPdf)
+    customerFeatures
+  }
 
-        val den1 =
-          math.sqrt(customer1.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
-
-        val den2 =
-          math.sqrt(customer2.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
-
-        1 - (num / (den1 * den2))
+  def wallet[T](data: RDD[AnonymizedRecord], func: (AnonymizedRecord => T)): RDD[(Long, Map[T, Double])] =
+    data.map(record => (record.maskedCustomerId, func(record)) -> 1).reduceByKey(_ + _)
+    .groupBy {
+      case ((customerId, _), _) => customerId
     }
+    .mapValues(
+      _.map {
+        case ((_, t), count) => t -> count
+      }
+      .toMap.normalize.toList.toMap
+    )
 
+  def vpTree(customerFeatures: Array[(Long, KNeighboursCustomerFeatures)], minNumBusinessesPerCustomer: Int) = {
     Logger().info("Building the vptree with " + customerFeatures.length + " customers...")
-    val vpTree = VPTree(customerFeatures.map(_.swap).filter(_._1.businessWallet.size > minNumBusinessesPerCustomer),
+    VPTree(customerFeatures.map(_.swap).filter(_._1.businessWallet.size > minNumBusinessesPerCustomer),
       distanceFunction, 1
     )
+  }
+
+  val distanceFunction: (KNeighboursCustomerFeatures, KNeighboursCustomerFeatures) => Double = {
+    case ((customer1: KNeighboursCustomerFeatures), (customer2: KNeighboursCustomerFeatures)) =>
+      val num = customer1.dayOfTheWeekWallet.productWithMap(customer2.dayOfTheWeekWallet) +
+        customer1.postcodeSectorWallet.productWithMap(customer2.postcodeSectorWallet) +
+        customer1.categoryWallet.productWithMap(customer2.categoryWallet) +
+        customer1.businessWallet.productWithMap(customer2.businessWallet) +
+        customer1.onlineActivePdf.productWithMap(customer2.onlineActivePdf) +
+        customer1.acornTypeIdPdf.productWithMap(customer2.acornTypeIdPdf) +
+        customer1.genderPdf.productWithMap(customer2.genderPdf) +
+        customer1.maritalStatusIdPdf.productWithMap(customer2.maritalStatusIdPdf) +
+        customer1.occupationIdPdf.productWithMap(customer2.occupationIdPdf)
+
+      val den1 =
+        math.sqrt(customer1.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
+
+      val den2 =
+        math.sqrt(customer2.productIterator.flatMap(_.asInstanceOf[Map[_, Double]].values).map(math.pow(_, 2)).sum)
+
+      1 - (num / (den1 * den2))
+  }
+}
+
+case class KNeighboursRecommenderTrainer(@transient sc: SparkContext,
+                                         minNumBusinessesPerCustomer: Int,
+                                         maxNumBusinessesPerNeighbour: Int,
+                                         maxPrecomputedRecommendations: Int,
+                                         k: Int) extends RecommenderTrainer {
+  def train(data: RDD[AnonymizedRecord]): Recommender = {
+    //    val filteredCustomersAndBusinesses: RDD[(Long, (String, String))] =
+    //      data.map(record => (record.maskedCustomerId, record.businessKey) -> 1).reduceByKey(_ + _)
+    //      .filter(_._2 >= minNumTransactions).keys.cache()
+
+    val customerFeatures = KNeighboursRecommenderTrainer.customerFeatures(sc, data, maxNumBusinessesPerNeighbour)
+
+    val vpTree = KNeighboursRecommenderTrainer.vpTree(customerFeatures, minNumBusinessesPerCustomer)
 
     Logger().info("Pre-computing recommendations...")
     val preComputedRecommendationsBV = sc.broadcast(
@@ -113,7 +127,7 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext,
           val businessesScores =
             (for {
               (neighbourFeatures, neighbourId) <- vpTree.approximateNearestN(features, k).par
-              distance = distanceFunction(features, neighbourFeatures)
+              distance = KNeighboursRecommenderTrainer.distanceFunction(features, neighbourFeatures)
               (neighbourBusiness, neighbourFrequency) <- neighbourFeatures.businessWallet
               if !neighbourFeatures.businessWallet.contains(neighbourBusiness)
             } yield neighbourBusiness -> (neighbourFrequency * (1 - distance)))
@@ -127,9 +141,7 @@ case class BotticelliRecommenderTrainer(@transient sc: SparkContext,
 
     Logger().info("Computing the most popular businesses...")
     val rankedBusinessesByNumberOfCustomersBV: Broadcast[List[(String, String)]] = sc.broadcast(
-      data.map(record => (record.businessKey, record.maskedCustomerId)).distinct()
-      .mapValues(_ => 1.0).reduceByKey(_ + _).sortBy(_._2, ascending = false).keys
-      .take(maxNumBusinessesPerNeighbour).toList
+      mostPopularBusinesses(data).take(maxNumBusinessesPerNeighbour).toList
     )
 
     Logger().info("Creating the Recommender object...")
