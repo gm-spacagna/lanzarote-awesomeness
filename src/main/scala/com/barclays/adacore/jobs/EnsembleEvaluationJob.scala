@@ -24,7 +24,6 @@ case object EnsembleEvaluationJob {
       val blocks = opt[Int](default = Some(30))
       val lambda = opt[Double](default = Some(0.01))
 
-      val sampleFraction = opt[Double](default = Some(0.01))
       val evaluationSamplingFraction = opt[Double](default = Some(1.0))
     }
 
@@ -47,8 +46,7 @@ case object EnsembleEvaluationJob {
       Item2ItemTanimotoCoefficientRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
     val alsRecommenderTrainer =
-    ALSRecommender(sc, conf.rank(), conf.numIterations(), conf.alpha(), conf.blocks(), conf.lambda(), conf.n(),
-      conf.sampleFraction())
+    ALSRecommender(sc, conf.rank(), conf.numIterations(), conf.alpha(), conf.blocks(), conf.lambda(), conf.n())
 
     val recommenderList = List(item2ItemConditionalProbabilityRecommenderTrainer,
                                item2ItemTanimotoCoefficientRecommenderTrainer,

@@ -8,7 +8,7 @@ import org.apache.spark.rdd.RDD
 import org.jblas.DoubleMatrix
 
 case class ALSRecommender(@transient sc: SparkContext, rank: Int, numIterations: Int, alpha: Double, blocks: Int,
-                          lambda: Double, maxRecommendations: Int, sampleFraction: Double) extends RecommenderTrainer {
+                          lambda: Double, maxRecommendations: Int) extends RecommenderTrainer {
   // returns customerId -> List[(merchantName, merchantTown)]
 
   def train(data: RDD[AnonymizedRecord]): Recommender = {
