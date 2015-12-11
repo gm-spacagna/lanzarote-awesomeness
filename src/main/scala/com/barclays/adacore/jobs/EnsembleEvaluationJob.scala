@@ -18,6 +18,13 @@ case object EnsembleEvaluationJob {
 
       val minNumTransactionsPerUserAndBusiness = opt[Int](default = Some(5))
 
+      val rank = opt[Int](default = Some(10))
+      val numIterations = opt[Int](default = Some(10))
+      val alpha = opt[Double](default = Some(0.01))
+      val blocks = opt[Int](default = Some(30))
+      val lambda = opt[Double](default = Some(0.01))
+
+      val sampleFraction = opt[Double](default = Some(0.01))
       val evaluationSamplingFraction = opt[Double](default = Some(1.0))
     }
 
@@ -33,20 +40,25 @@ case object EnsembleEvaluationJob {
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
 
-
-    
-    val recommenderTrainer: Item2ItemConditionalProbabilityRecommender =
+    val item2ItemConditionalProbabilityRecommenderTrainer: Item2ItemConditionalProbabilityRecommender =
       Item2ItemConditionalProbabilityRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
-    val recommenderTrainer =
+    val item2ItemTanimotoCoefficientRecommenderTrainer =
       Item2ItemTanimotoCoefficientRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
+    val alsRecommenderTrainer =
+    ALSRecommender(sc, conf.rank(), conf.numIterations(), conf.alpha(), conf.blocks(), conf.lambda(), conf.n(),
+      conf.sampleFraction())
 
-    val recommenderTrainer: EnsembleRecommender =
-      EnsembleRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
+    val recommenderList = List(item2ItemConditionalProbabilityRecommenderTrainer,
+                               item2ItemTanimotoCoefficientRecommenderTrainer,
+                               alsRecommenderTrainer)
+
+    val ensembleRecommenderTrainer: EnsembleRecommender = EnsembleRecommender(sc, recommenderList)
 
     Logger().info("MAP@" + conf.n() + "=" +
-      RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
+      RecommenderEvaluation(sc).evaluate(ensembleRecommenderTrainer, trainingData, testData, conf.n(),
+        conf.evaluationSamplingFraction())
     )
   }
 }
