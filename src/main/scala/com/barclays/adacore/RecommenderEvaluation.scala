@@ -2,6 +2,7 @@ package com.barclays.adacore
 
 import com.barclays.adacore.utils.MAP
 import org.apache.spark.SparkContext
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 
 import scala.util.Random
@@ -49,6 +50,20 @@ case class RecommenderEvaluation(@transient sc: SparkContext) {
   }
 }
 
+class RecommenderWithPrecomputedRecommendationsAndMostPopularAsDefault(preComputedRecommendationsBV: Broadcast[Map[Long, List[(String, String)]]],
+                                                                       rankedBusinessesByNumberOfCustomersBV: Broadcast[List[(String, String)]]) extends Recommender {
+  def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] = {
+    customers.map(customerId => customerId -> {
+      val recommendations =
+        preComputedRecommendationsBV.value.getOrElse(customerId, rankedBusinessesByNumberOfCustomersBV.value)
+        .take(n)
+      if (recommendations.size >= n) recommendations
+      else (recommendations ++
+        (rankedBusinessesByNumberOfCustomersBV.value.take(n).toSet -- recommendations)).take(n)
+    })
+  }
+}
+
 trait Recommender extends Serializable {
   // returns customerId -> List[(merchantName, merchantTown)]
   def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])]
@@ -60,6 +75,14 @@ trait RecommenderTrainer {
   def mostPopularBusinesses(data: RDD[AnonymizedRecord]): RDD[(String, String)] =
     data.map(record => (record.businessKey, record.maskedCustomerId)).distinct()
     .mapValues(_ => 1).reduceByKey(_ + _).sortBy(_._2, ascending = false).keys
+
+  def customerIdToBusinessKeySet(data: RDD[AnonymizedRecord]): RDD[(Long, Set[(String, String)])] =
+    data.map(record => (record.maskedCustomerId, record.businessKey)).distinct()
+    .groupByKey().mapValues(_.toSet)
+
+  def businessKeyToCustomerIdSet(data: RDD[AnonymizedRecord]): RDD[((String, String), Set[Long])] =
+    data.map(record => (record.maskedCustomerId, record.businessKey)).map(_.swap).distinct()
+    .groupByKey().mapValues(_.toSet)
 }
 
 case class RandomRecommender(@transient sc: SparkContext) extends RecommenderTrainer {

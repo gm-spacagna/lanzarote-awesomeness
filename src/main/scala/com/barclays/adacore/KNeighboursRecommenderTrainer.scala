@@ -112,25 +112,25 @@ case class KNeighboursRecommenderTrainer(@transient sc: SparkContext,
                                          maxPrecomputedRecommendations: Int,
                                          k: Int) extends RecommenderTrainer {
   def train(data: RDD[AnonymizedRecord]): Recommender = {
-    //    val filteredCustomersAndBusinesses: RDD[(Long, (String, String))] =
-    //      data.map(record => (record.maskedCustomerId, record.businessKey) -> 1).reduceByKey(_ + _)
-    //      .filter(_._2 >= minNumTransactions).keys.cache()
-
     val customerFeatures = KNeighboursRecommenderTrainer.customerFeatures(sc, data, maxNumBusinessesPerNeighbour)
 
     val vpTree = KNeighboursRecommenderTrainer.vpTree(customerFeatures, minNumBusinessesPerCustomer)
 
     Logger().info("Pre-computing recommendations...")
-    val preComputedRecommendationsBV = sc.broadcast(
+    val preComputedRecommendationsBV: Broadcast[Map[Long, List[(String, String)]]] = sc.broadcast(
       customerFeatures.par.map {
         case (customerId, features) => customerId -> {
+          val neighbours = vpTree.approximateNearestN(features, k).par
+          val totalSimilarity =
+            neighbours.map(_._1).map(KNeighboursRecommenderTrainer.distanceFunction(features, _)).map(1 - _).sum
+
           val businessesScores =
             (for {
-              (neighbourFeatures, neighbourId) <- vpTree.approximateNearestN(features, k).par
+              (neighbourFeatures, neighbourId) <- neighbours
               distance = KNeighboursRecommenderTrainer.distanceFunction(features, neighbourFeatures)
               (neighbourBusiness, neighbourFrequency) <- neighbourFeatures.businessWallet
               if !neighbourFeatures.businessWallet.contains(neighbourBusiness)
-            } yield neighbourBusiness -> (neighbourFrequency * (1 - distance)))
+            } yield neighbourBusiness -> (neighbourFrequency * (1 - distance) / totalSimilarity))
             .groupBy(_._1).mapValues(_.map(_._2).sum).toList
 
           TopElements.topN(businessesScores)(_._2, maxPrecomputedRecommendations).map(_._1)
@@ -145,17 +145,7 @@ case class KNeighboursRecommenderTrainer(@transient sc: SparkContext,
     )
 
     Logger().info("Creating the Recommender object...")
-    new Recommender {
-      // returns customerId -> List[(merchantName, merchantTown)]
-      def recommendations(customers: RDD[Long], n: Int): RDD[(Long, List[(String, String)])] =
-        customers.map(customerId => customerId -> {
-          val recommendations =
-            preComputedRecommendationsBV.value.getOrElse(customerId, rankedBusinessesByNumberOfCustomersBV.value)
-            .take(n)
-          if (recommendations.size >= n) recommendations
-          else (recommendations ++
-            (rankedBusinessesByNumberOfCustomersBV.value.take(n).toSet -- recommendations)).take(n)
-        })
-    }
+    new RecommenderWithPrecomputedRecommendationsAndMostPopularAsDefault(preComputedRecommendationsBV,
+      rankedBusinessesByNumberOfCustomersBV)
   }
 }
