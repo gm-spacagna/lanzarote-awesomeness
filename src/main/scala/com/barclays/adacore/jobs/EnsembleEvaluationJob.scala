@@ -5,7 +5,7 @@ import com.barclays.adacore.utils.Logger
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
 
-case object Item2ItemConditionalProbabilityEvaluationJob {
+case object EnsembleEvaluationJob {
   def main(args: Array[String]) {
     val conf = new ScallopConf(args) {
       val anonymizedDataPath = opt[String](required = true, descr = "The path of the anonymized data")
@@ -17,6 +17,12 @@ case object Item2ItemConditionalProbabilityEvaluationJob {
         descr = "the fraction of businesses to use in the training for each customer")
 
       val minNumTransactionsPerUserAndBusiness = opt[Int](default = Some(5))
+
+      val rank = opt[Int](default = Some(10))
+      val numIterations = opt[Int](default = Some(10))
+      val alpha = opt[Double](default = Some(0.01))
+      val blocks = opt[Int](default = Some(30))
+      val lambda = opt[Double](default = Some(0.01))
 
       val evaluationSamplingFraction = opt[Double](default = Some(1.0))
     }
@@ -32,11 +38,25 @@ case object Item2ItemConditionalProbabilityEvaluationJob {
     val data = sc.textFile(conf.anonymizedDataPath()).coalesce(conf.partitions()).map(AnonymizedRecord.fromSv())
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
-    val recommenderTrainer: Item2ItemConditionalProbabilityRecommender =
+
+    val item2ItemConditionalProbabilityRecommenderTrainer: Item2ItemConditionalProbabilityRecommender =
       Item2ItemConditionalProbabilityRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
+    val item2ItemTanimotoCoefficientRecommenderTrainer =
+      Item2ItemTanimotoCoefficientRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
+
+    val alsRecommenderTrainer =
+    ALSRecommender(sc, conf.rank(), conf.numIterations(), conf.alpha(), conf.blocks(), conf.lambda(), conf.n())
+
+    val recommenderList = List(item2ItemConditionalProbabilityRecommenderTrainer,
+                               item2ItemTanimotoCoefficientRecommenderTrainer,
+                               alsRecommenderTrainer)
+
+    val ensembleRecommenderTrainer: EnsembleRecommender = EnsembleRecommender(sc, recommenderList)
+
     Logger().info("MAP@" + conf.n() + "=" +
-      RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
+      RecommenderEvaluation(sc).evaluate(ensembleRecommenderTrainer, trainingData, testData, conf.n(),
+        conf.evaluationSamplingFraction())
     )
   }
 }
