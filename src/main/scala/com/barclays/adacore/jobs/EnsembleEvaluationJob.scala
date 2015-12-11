@@ -5,7 +5,7 @@ import com.barclays.adacore.utils.Logger
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
 
-case object Item2ItemConditionalProbabilityEvaluationJob {
+case object EnsembleEvaluationJob {
   def main(args: Array[String]) {
     val conf = new ScallopConf(args) {
       val anonymizedDataPath = opt[String](required = true, descr = "The path of the anonymized data")
@@ -32,8 +32,18 @@ case object Item2ItemConditionalProbabilityEvaluationJob {
     val data = sc.textFile(conf.anonymizedDataPath()).coalesce(conf.partitions()).map(AnonymizedRecord.fromSv())
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
+
+
+    
     val recommenderTrainer: Item2ItemConditionalProbabilityRecommender =
       Item2ItemConditionalProbabilityRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
+
+    val recommenderTrainer =
+      Item2ItemTanimotoCoefficientRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
+
+
+    val recommenderTrainer: EnsembleRecommender =
+      EnsembleRecommender(sc, conf.minNumTransactionsPerUserAndBusiness())
 
     Logger().info("MAP@" + conf.n() + "=" +
       RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
