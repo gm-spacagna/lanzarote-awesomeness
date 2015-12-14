@@ -1,6 +1,6 @@
 package com.barclays.adacore.jobs
 
-import com.barclays.adacore.{RandomForestRecommender, RecommenderEvaluation, RandomRecommender, AnonymizedRecord}
+import com.barclays.adacore._
 import com.barclays.adacore.utils.Logger
 import org.apache.spark.{SparkConf, SparkContext}
 import org.rogach.scallop.ScallopConf
@@ -28,12 +28,13 @@ case object RandomRecommenderEvaluationJob {
     Logger().info(conf.summary)
 
     val data = sc.textFile(conf.anonymizedDataPath()).coalesce(conf.partitions()).map(AnonymizedRecord.fromSv())
-    val recommenderTrainer = RandomForestRecommender(sc, 1)
+    //    val recommenderTrainer = RandomForestRecommender(sc, 1)
+
+    val recommenderTrainer = MultilabelClassificationRecommender(sc)
 
     val (trainingData, testData) = RecommenderEvaluation(sc).splitData(data, conf.trainingFraction())
 
-    Logger().info("MAP@" + conf.n() + "=" +
-      RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
+    Logger().info("MAP@" + conf.n() + "=" + RecommenderEvaluation(sc).evaluate(recommenderTrainer, trainingData, testData, conf.n(), conf.evaluationSamplingFraction())
     )
   }
 }

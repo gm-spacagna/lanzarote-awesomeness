@@ -6,6 +6,8 @@ version := "0.1.0-SNAPSHOT"
 
 scalaVersion := "2.10.6"
 
+unmanagedJars in Compile += file("lib/sparkboost-0.6-bundle.jar")
+
 libraryDependencies ++= Seq(
   "org.scala-lang" % "scalap" % "2.10.4" withSources() withJavadoc(),
   "org.scala-lang" % "scala-compiler" % "2.10.4" withSources() withJavadoc(),
@@ -25,7 +27,9 @@ libraryDependencies ++= Seq(
 resolvers ++= Seq(
   "mvnrepository" at "https://repository.cloudera.com/artifactory/cloudera-repos/",
   "Maven Central" at "https://repo1.maven.org/maven2/",
-  "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
+  "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+  "Local Maven repo" at "file://" + Path.userHome.absolutePath + "/.m2/repository",
+  Resolver.mavenLocal
 )
 
 mergeStrategy in assembly <<= (mergeStrategy in assembly) ((old) => {
